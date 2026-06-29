@@ -24,6 +24,11 @@
 
 ## TODO (다음 할 일)
 
+- [ ] 사양서(docs/specs/) 보완 및 승인 처리 (DRAFT -> APPROVED)
+      - [ ] `stage1_linetrace.md` 판단층-구동층 분리 강화 (`decide_stage1` 순수함수 명시)
+      - [ ] `stage5_integration.md` LEAF 도달 시 U턴 강제화 등 예외 처리 추가
+      - [ ] `stage6_explore_return.md` 재귀 제거 및 복귀 시 노드 패턴 검증 도입
+      - [ ] `stage7_gripper.md` 초음파 센서 비차단 백그라운드 스레드 폴링화 및 그리퍼 스톨 예외 설계
 - [ ] Stage 0 스크립트 작성: 7개 장치(모터3·센서4) 포트 인식 + 값 읽기 확인.
       여기서 `python3 --version` 으로 EV3 Python 버전 확정(stretch=3.5면 f-string 불가).
 - [ ] 실기에서 Stage 0 실행, 좌/우 모터 방향 확인.
@@ -32,6 +37,12 @@
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-29 — 서브에이전트를 활용한 스테이지별 구현 명세 검토 (Agent: antigravity)
+- 서브에이전트 3개를 띄워 `00_infra_dashboard.md` 및 `stage0~7` 스펙의 전반을 검증함.
+- 핵심 검토 결과를 [analysis_results.md](file:///home/emjdp/.gemini/antigravity/brain/b9afc161-214b-499b-9d0a-29579839fa4b/analysis_results.md) 아티팩트로 작성 완료.
+- 주요 지적 사항: 초음파 센서 동기식 읽기로 인한 제어 주기 붕괴 위험(High), 복귀 로직의 노이즈 취약성 및 재귀 구조 우려(High), Stage 1 판단-구동 분리 미흡(Medium) 등.
+- **다음**: 지적 사항을 바탕으로 docs/specs/의 DRAFT 문서들을 보완 및 APPROVED 처리 후 Stage 0 실행.
 
 ### 2026-06-29 — 스테이지별 구현 명세 작성 (docs/specs/) (Agent: claude)
 - 사람 인터페이스를 터미널 TUI 대시보드(`tools/dashboard.py`, curses)로 확정. 눌러서 실행

@@ -5,13 +5,13 @@
 
 ## 현재 단계
 
-**Stage 0 — 연결/포트 확인** (시작 전)
+**Stage 0 — 연결/포트 확인** (코드 작성됨, 실기 검증 대기)
 
 ## 단계 상태판
 
 | 단계 | 상태 | 비고 |
 |---|---|---|
-| Stage 0 연결/포트 확인 | ⬜ 시작 전 | |
+| Stage 0 연결/포트 확인 | 🟡 진행 중 | 코드 작성·py_compile 통과, 실기 검증 필요 |
 | Stage 1 기초 라인트레이싱 | ⬜ 시작 전 | |
 | Stage 2 원시 회전(좌/우/U) | ⬜ 시작 전 | |
 | Stage 3 노드 감지 | ⬜ 시작 전 | |
@@ -38,14 +38,25 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
-- [ ] **Stage 0 스크립트**: 7개 장치(모터3·센서4) 포트 인식 + 값 읽기 확인.
-      `python3 --version` 으로 EV3 Python 버전 확정(stretch=3.5면 f-string 불가).
-- [ ] 실기에서 Stage 0 실행, 좌/우 모터 방향 확인.
+- [x] **Stage 0 스크립트 작성**: `stages/stage0_check.py` (py_compile 통과, f-string 없음). [claude]
+- [ ] **실기에서 Stage 0 실행** (`python3 stages/stage0_check.py`):
+      ① `python` 버전 → PROGRESS 기록(3.5 여부 확정) ② 7개 포트 OK + 센서값 sanity
+      ③ 좌/우 모터 방향(기대와 다르면 "다름"만 기록, 수정은 Stage 1). → Done 이면 🟢.
+- [ ] (이후) 나머지 스테이지는 codex 가 담당.
 - [ ] (Stage 1 착수 시) 라이브 튜닝 infra MVP 구현 — `00_infra_dashboard.md`(REVIEWED) 계약대로:
       `lib/` shared_params·telemetry·decision_log·tuning_server·pid + `tools/` robotctl·dashboard·watcher.
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-29 — Stage 0 스크립트 구현 (Agent: claude)
+- `stages/stage0_check.py` 작성(명세 docs/specs/stage0_connection.md 기반).
+- 모터3(outA/outB/outC)·센서4(in1~in4) 포트 probe + 값 1회 읽기, 좌/우 forward nudge
+  (15%/400ms, ENTER 로 시작·BACK 즉시중단), python 버전 출력, OK/FAIL 요약.
+- Python 3.5 안전(f-string 없음, .format()), ev3dev2 는 main() 안 import → PC py_compile 통과.
+- 한 포트 실패해도 나머지 계속 점검(try/except per device). position 읽기 예외도 감쌈.
+- **실기 검증 필요**: 브릭에서 실행해 버전·7포트·방향 확인 후 PROGRESS 기록 → Done.
+- 나머지 스테이지(1~7)는 codex 담당 예정.
 
 ### 2026-06-29 — antigravity 검토 보고서 재검토 + 반영 (Agent: claude)
 - antigravity 보고서(9개 지적)를 명세 원문과 대조 검토(#2 통신·#4 Stage1 분리 직접 확인 — 보고서 정확).

@@ -79,10 +79,14 @@ ev3test/
 `lib/shared_params.py`
 ```text
 class SharedParams:
-    __init__(self, defaults, limits, max_step, save_path)   # dict, dict{name:(min,max)}, dict{name:step}, str
+    __init__(self, defaults, limits, max_step, save_path,
+             ui_step=None, units=None, param_order=None)
+        # dict, dict{name:(min,max)}, dict{name:step}, str,
+        # dict{name:ui_step}, dict{name:unit}, [name,...]
     snapshot(self) -> dict        # 락 잡고 얕은 복사 반환 (제어 루프가 매 틱 호출)
     get(self, name)               # 단일 값
     rev(self) -> int              # param_rev (변경 카운터, 단조 증가)
+    describe(self) -> list        # value/min/max/step/max_step/unit 메타 배열
     set(self, name, value) -> (ok: bool, msg: str)   # 범위/스텝 검증 후 반영, 거부 시 ok=False
     save(self) -> (ok, msg)       # 현재 값을 save_path(JSON)에 기록
     rollback(self) -> (ok, msg)   # save_path 의 마지막 저장값으로 되돌림(없으면 defaults)
@@ -120,11 +124,14 @@ class Pid:
 ```text
 class TuningServer:
     __init__(self, params, telemetry, host="127.0.0.1", port=8765,
-             do_handler=None, stop_handler=None)
+             do_handler=None, stop_handler=None, actions=None, stage="")
     start(self)   # accept thread 시작(데몬). 연결마다 핸들러 thread.
     stop(self)
     # do_handler(action, args) -> dict  : 단일 동작 큐잉/실행 결과(구동층이 제공)
     # stop_handler(source) -> None      : 네트워크 정지(구동층이 제공)
+    # actions: [{"name","label"}, ...]  : 이 스테이지가 노출하는 do 액션 목록(describe 가 반환)
+    # stage:   현재 스테이지 이름(describe 가 반환)
+    # describe 명령은 params 메타데이터(SharedParams)+actions+stage 를 합쳐 응답한다(6.1 절).
 ```
 
 ---
@@ -132,8 +139,9 @@ class TuningServer:
 ## 3. 라이브 params (인프라 관점)
 
 > 인프라는 *특정* params 를 정의하지 않는다. **각 스테이지 spec 이 자기 params dict +
-> PARAM_LIMITS + MAX_STEP 를 정의**하고, 그것을 `SharedParams(defaults, limits, max_step,
-> save_path)` 에 주입한다. 여기서는 **그릇의 규칙**만 명세한다. (Stage 1 의 실제 6개 값은
+> PARAM_LIMITS + MAX_STEP (+ 대시보드용 UI_STEP/UNIT) 를 정의**하고, 그것을
+> `SharedParams(defaults, limits, max_step, save_path, ui_step=None, units=None)` 에
+> 주입한다. 여기서는 **그릇의 규칙**만 명세한다. (Stage 1 의 실제 6개 값은
 > [stage1_linetrace.md](stage1_linetrace.md) 와 [LIVE_TUNING.md](../LIVE_TUNING.md) "Stage 1" 참조.)
 
 | 규칙 | 내용 |
@@ -144,6 +152,8 @@ class TuningServer:
 | 미정의 키 | limits 에 없는 이름은 `set` 거부(오타·미노출 값 보호). |
 | param_rev | `set` 성공 시 +1. samples 에 같이 적어 "어느 값으로 찍힌 telemetry 인지" 추적. |
 | save/rollback | `set` 은 메모리(현재 주행)만. `save` 가 `config/<stage>.json` 에 검증값 박음. `rollback` 은 마지막 save 로 복귀. |
+| UI_STEP/UNIT | (대시보드 전용) `{name: step}` = +/- 한 칸 증분, `{name: unit}` = 표시 단위(선택). 안전과 무관, 표시·조작용. 미정의면 step 은 합리적 기본(예 MAX_STEP/10), unit 은 공백. |
+| describe 노출 | 위 메타데이터(value·min·max·max_step·step·unit)를 `describe` 가 그대로 반환 → 대시보드가 이걸로 UI 를 자동 구성(하드코딩 X). |
 
 예시(LIMITS/STEP 형식만 — 값은 LIVE_TUNING.md 기술결정/Stage 1 에서 확정):
 ```text
@@ -303,6 +313,7 @@ def update(self, error, dt):
 {"cmd":"save"}                                    // 현재 값을 config/<stage>.json 에
 {"cmd":"rollback"}                                // 마지막 save 로 복귀
 {"cmd":"get_latest"}                              // 최신 telemetry 프레임 1개
+{"cmd":"describe"}                                // 이 스테이지의 params 메타+actions (UI 자동구성용)
 ```
 
 응답(예):
@@ -313,6 +324,28 @@ def update(self, error, dt):
 {"ok":true,  "saved":"config/stage1.json"}                // save
 {"ok":true,  "latest":{"t_ms":13120,"reflect":34,...}}    // get_latest
 ```
+
+`describe` 응답 (동결 계약 — 대시보드가 이걸로 UI 를 자동 구성한다):
+```jsonc
+{
+  "ok": true,
+  "stage": "stage2",
+  "params": [
+    // 순서대로 화면에 그린다. min/max/step/max_step/unit 은 SharedParams 메타에서.
+    {"name":"turn_90_factor", "value":1.0, "min":0.5, "max":1.5, "step":0.01, "max_step":0.1, "unit":"x"},
+    {"name":"turn_speed",     "value":20,  "min":5,   "max":60,  "step":1,    "max_step":10,  "unit":"%"}
+  ],
+  "actions": [
+    {"name":"turn_left",  "label":"좌90"},
+    {"name":"turn_right", "label":"우90"},
+    {"name":"uturn",      "label":"U턴"}
+  ]
+}
+```
+- `params` 는 그 스테이지가 라이브로 노출한 것만(6개 이하), 화면 표시 순서대로.
+- `actions` 는 그 스테이지의 `do` 액션 목록(name=프로토콜 인자, label=사람용 표기).
+- 스테이지가 바뀌면 `describe` 결과가 바뀌고 **대시보드는 코드 변경 없이** 새 params/액션을 그린다.
+  (데모 서버는 샘플 params+actions 로 describe 를 채워 PC 단독 테스트가 되게 한다.)
 - telemetry 는 **push 안 함**(기본 pull): `get_latest` 를 주기적으로 polling.
   ([LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 2의 pull 모델, 기술결정 4와 부합.)
 
@@ -336,6 +369,7 @@ python tools/robotctl.py do <action> [k=v ...]
 python tools/robotctl.py save
 python tools/robotctl.py rollback
 python tools/robotctl.py latest          # get_latest 보기 좋게 출력
+python tools/robotctl.py describe        # stage/params/actions 메타 확인
 ```
 - 종료코드: 성공 0, 거부/에러 1(스크립트가 분기 가능). `--host/--port` 옵션(기본 127.0.0.1:8765).
 
@@ -343,6 +377,11 @@ python tools/robotctl.py latest          # get_latest 보기 좋게 출력
 한 화면에 상태/최근 이벤트/조정 가능한 params + **큰 STOP**. 상태 표시는 watcher 가 쓴
 로컬 `runs/current/latest_state.json` 을 읽어 갱신(브릭 직접 폴링 안 함, 검토 반영 #2).
 키 입력 시에만 `set`/`do`/`stop` 명령을 브릭에 보낸다.
+
+> **data-driven (검토 반영 — 스테이지마다 대시보드 재작성 방지):** 접속 시 `describe` 를 1회
+> 호출해 **params 행과 actions 키를 동적으로 구성**한다. 특정 스테이지의 param 이름·액션을
+> 코드에 하드코딩하지 않는다. Stage 2(회전)·Stage 4(색) 등에서 새 params/액션이 생겨도
+> 대시보드 코드는 그대로다 — `describe` 가 알려주는 대로 그린다.
 
 레이아웃(개념):
 ```
@@ -362,21 +401,26 @@ python tools/robotctl.py latest          # get_latest 보기 좋게 출력
 +--------------------------------------------------------------------------------+
 ```
 
-키맵 (명세 — 스테이지가 actions 행만 추가):
+키맵 (명세 — actions 키는 `describe` 의 actions 로 **자동 배정**, 하드코딩 X):
 | 키 | 동작 | 비고 |
 |---|---|---|
-| `s` 또는 `Space` | **STOP** (`stop`) | 항상 최우선, 큰 표시 |
-| `↑` / `↓` 또는 `Tab` | params 행 선택 | |
-| `←` / `-` | 선택 param **감소**(`set name value-step`) | MAX_STEP 만큼 |
-| `→` / `+` | 선택 param **증가**(`set name value+step`) | 거부되면 에러 한 줄 표시 |
+| `s` | **STOP** (`stop`) | 네트워크 정지 보조. BACK 버튼이 1차 정지 |
+| `↑` / `↓` 또는 `Tab` | params 행 선택 | describe 순서대로 |
+| `←` / `-` | 선택 param **감소**(`set name value-step`) | UI `step` 만큼(coarse 면 ×5) |
+| `→` / `+` | 선택 param **증가**(`set name value+step`) | 거부(범위/max_step)되면 에러 한 줄 표시 |
+| `1`,`2`,`3`… | `do <action>` | **describe.actions 순서대로 자동 배정**(예 `1`=좌90 `2`=우90 `3`=U턴) |
+| `Space` 또는 `.` | **마지막 do 액션 반복** | 회전 보정 루프용 |
+| `a` | **"조정 후 자동 재실행" 토글** | ON 이면 `+/-` 직후 마지막 액션 자동 재실행 |
+| `c` | **coarse/fine step 토글** | fine=`step`, coarse=`step`×5 (단 max_step 넘으면 서버가 거부) |
 | `S`(대문자) | `save` (확인 프롬프트) | config/<stage>.json |
 | `R` | `rollback` (확인 프롬프트) | |
-| `g` | `get` 전체 새로고침 | |
-| 스테이지 키 | `do <action>` | 예 Stage1 `f`=follow_once, `n`=nudge (각 스테이지 spec 이 정의) |
+| `g` | `describe`+`get` 전체 새로고침 | 스테이지 바뀌었을 때 |
 | `q` | 대시보드 종료(로봇은 계속 주행) | 로봇 stop 아님 |
 
+> 회전 튜닝 루프(Stage 2): `1`(좌90) → 각도 보고 → `+`/`-` 로 turn_90_factor 한 칸 → `.`(또는
+> `Space`, `a` 토글 ON 시 자동) 로 다시 좌90. **터미널 타이핑 없이 키만으로** 반복한다.
 > 대시보드 종료(`q`)는 **로봇을 멈추지 않는다**. 멈춤은 `s`(network stop) 또는 브릭 BACK.
-> 키맵에 STOP 을 두 곳(대문자/소문자 혼동 방지: `s` 와 `Space`)에 둔다.
+> 반복 키와 정지 키를 분리해, 회전 보정 중에는 `Space` 를 "마지막 동작 반복"으로 쓴다.
 
 ---
 
@@ -438,7 +482,11 @@ PC 엔 ev3dev2 가 없으므로 **문법/판단층만** 검증한다.
 
 ## 10. 구현 체크리스트 (이어받는 사람/에이전트용 TODO)
 
+> 아래 기본 항목은 인프라 MVP 1차에서 대부분 구현됨(PROGRESS 참조). **이번 `describe`/
+> data-driven 확장에서 새로/추가로 해야 하는 것**은 각 항목 끝에 `[describe]` 로 표시한다.
+
 - [ ] `lib/shared_params.py`: 락·snapshot·set(범위/스텝 거부)·rev·save/rollback. PC 단위 테스트.
+      `[describe]` ui_step/units 메타 보관 + describe 용 메타 노출 메서드.
 - [ ] `lib/telemetry.py`: publish/latest(락). PC 단위 테스트.
 - [ ] `lib/pid.py`: dt 인자 update, gains 라이브 변경, out_limit. PC 단위 테스트.
 - [ ] `lib/decision_log.py`: log(event,reason,**detail), t_ms 자동, sink 연결. 판단층 I/O 금지 확인.

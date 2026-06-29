@@ -118,6 +118,8 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
         return {"cmd": "rollback"}
     if args.command == "latest":
         return {"cmd": "get_latest"}
+    if args.command == "describe":
+        return {"cmd": "describe"}
     raise RobotctlError("알 수 없는 명령입니다: {}".format(args.command))
 
 
@@ -190,6 +192,10 @@ def print_response(command: str, request: dict[str, Any], response: dict[str, An
         print(json_pretty(latest))
         return
 
+    if command == "describe":
+        print(json_pretty(response))
+        return
+
     print(json_pretty(response))
 
 
@@ -238,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("save", parents=[common], help="현재 params 저장")
     subparsers.add_parser("rollback", parents=[common], help="마지막 저장값으로 복귀")
     subparsers.add_parser("latest", parents=[common], help="최신 telemetry 조회")
+    subparsers.add_parser("describe", parents=[common], help="스테이지 params/actions 메타 조회")
 
     return parser
 

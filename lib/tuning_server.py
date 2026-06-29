@@ -16,13 +16,15 @@ except ImportError:
 
 class TuningServer(object):
     def __init__(self, params, telemetry, host="127.0.0.1", port=8765,
-                 do_handler=None, stop_handler=None):
+                 do_handler=None, stop_handler=None, actions=None, stage=""):
         self.params = params
         self.telemetry = telemetry
         self.host = host
         self.port = port
         self.do_handler = do_handler
         self.stop_handler = stop_handler
+        self.actions = self._normalize_actions(actions or [])
+        self.stage = stage or ""
         self._sock = None
         self._accept_thread = None
         self._stopping = threading.Event()
@@ -115,6 +117,8 @@ class TuningServer(object):
             return self._cmd_rollback(req)
         if cmd == "get_latest":
             return {"ok": True, "latest": self.telemetry.latest()}
+        if cmd == "describe":
+            return self._cmd_describe(req)
         return {"ok": False, "error": "unknown cmd: {}".format(cmd)}
 
     def _cmd_get(self, req):
@@ -146,6 +150,8 @@ class TuningServer(object):
             args = {}
         if not isinstance(args, dict):
             return {"ok": False, "error": "args must be an object"}
+        if self.actions and action not in self._action_names():
+            return {"ok": False, "error": "unknown action: {}".format(action)}
         if self.do_handler is None:
             return {"ok": False, "error": "do handler is not configured"}
         result = self.do_handler(action, args)
@@ -170,6 +176,33 @@ class TuningServer(object):
             return {"ok": True, "message": msg, "params": self.params.snapshot(), "rev": self.params.rev()}
         return {"ok": False, "error": msg, "rev": self.params.rev()}
 
+    def _cmd_describe(self, req):
+        if hasattr(self.params, "describe"):
+            params = self.params.describe()
+        else:
+            params = []
+        return {
+            "ok": True,
+            "stage": self.stage,
+            "params": params,
+            "actions": list(self.actions),
+        }
+
+    def _normalize_actions(self, actions):
+        normalized = []
+        for item in actions:
+            if not isinstance(item, dict):
+                raise ValueError("action manifest entries must be objects")
+            name = item.get("name")
+            if not name:
+                raise ValueError("action manifest entry requires name")
+            label = item.get("label") or name
+            normalized.append({"name": str(name), "label": str(label)})
+        return normalized
+
+    def _action_names(self):
+        return set([item["name"] for item in self.actions])
+
 
 def _request(host, port, item):
     sock = socket.create_connection((host, port), timeout=2.0)
@@ -193,6 +226,8 @@ def _self_test():
         {"kp": (0.0, 3.0)},
         {"kp": 0.5},
         path,
+        {"kp": 0.05},
+        {"kp": ""},
     )
     tele = Telemetry()
     tele.publish({"reflect": 34})
@@ -205,12 +240,25 @@ def _self_test():
     def stop_handler(source):
         seen["stop"] = source
 
-    server = TuningServer(params, tele, port=0, do_handler=do_handler, stop_handler=stop_handler)
+    server = TuningServer(
+        params,
+        tele,
+        port=0,
+        do_handler=do_handler,
+        stop_handler=stop_handler,
+        actions=[{"name": "nudge", "label": "nudge"}],
+        stage="test",
+    )
     server.start()
     time.sleep(0.05)
     host = server.host
     port = server.port
     assert _request(host, port, {"cmd": "get", "name": "kp"})["value"] == 0.5
+    desc = _request(host, port, {"cmd": "describe"})
+    assert desc["stage"] == "test"
+    assert desc["params"][0]["name"] == "kp"
+    assert desc["params"][0]["step"] == 0.05
+    assert desc["actions"][0]["name"] == "nudge"
     assert _request(host, port, {"cmd": "set", "name": "kp", "value": 0.7})["ok"] is True
     assert _request(host, port, {"cmd": "get_latest"})["latest"]["reflect"] == 34
     assert _request(host, port, {"cmd": "do", "action": "nudge", "args": {"ms": 120}})["queued"] == "nudge"
@@ -248,6 +296,9 @@ def _demo():
         },
         {"kp": 0.1, "ki": 0.02, "kd": 0.05, "base_speed": 5, "turn_limit": 10, "target_reflect": 5},
         "config/demo.json",
+        {"kp": 0.05, "ki": 0.01, "kd": 0.01, "base_speed": 1, "turn_limit": 5, "target_reflect": 1},
+        {"base_speed": "%", "turn_limit": "%", "target_reflect": "%"},
+        ["kp", "ki", "kd", "base_speed", "turn_limit", "target_reflect"],
     )
     telemetry = Telemetry()
     state = {"running": False, "last_reason": None, "last_action": None}
@@ -282,7 +333,20 @@ def _demo():
         state["last_reason"] = "EMERGENCY_STOP"
         publish_demo_frame()
 
-    server = TuningServer(params, telemetry, do_handler=do_handler, stop_handler=stop_handler)
+    server = TuningServer(
+        params,
+        telemetry,
+        do_handler=do_handler,
+        stop_handler=stop_handler,
+        actions=[
+            {"name": "follow_once", "label": "추종1회"},
+            {"name": "nudge", "label": "전진"},
+            {"name": "turn_left", "label": "좌90"},
+            {"name": "turn_right", "label": "우90"},
+            {"name": "uturn", "label": "U턴"},
+        ],
+        stage="demo",
+    )
     server.start()
     print("demo tuning server listening on {}:{} (Ctrl-C to stop)".format(server.host, server.port))
     try:

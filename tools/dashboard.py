@@ -16,7 +16,9 @@ from typing import Any
 DEFAULT_STATE_PATH = Path("runs/current/latest_state.json")
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-DEFAULT_ACTIONS = {"f": "follow_once", "n": "nudge"}
+DEFAULT_TIMEOUT = 1.5
+PARAM_VALUE_STALE_SECONDS = 10.0
+ACTION_KEYS = list("1234567890") + list("dfhjklmnprtuuvwxyz")
 META_KEYS = {
     "stage",
     "latest",
@@ -41,6 +43,25 @@ class ParamRow:
     value: Any
     limit: Any = None
     step: Any = None
+    max_step: Any = None
+    unit: str = ""
+
+
+@dataclass
+class ActionBinding:
+    key: str
+    name: str
+    label: str
+
+
+@dataclass
+class DashboardSession:
+    selected: int = 0
+    status: str = ""
+    pending_confirm: str = ""
+    auto_rerun: bool = False
+    coarse_step: bool = False
+    last_action: str = ""
 
 
 @dataclass
@@ -48,12 +69,17 @@ class DashboardModel:
     stage: str
     frame: dict[str, Any]
     params: list[ParamRow]
+    actions: list[ActionBinding]
     events: list[dict[str, Any]]
     selected: int = 0
     status: str = ""
     state_error: str = ""
+    describe_error: str = ""
     state_age_s: float | None = None
     pending_confirm: str = ""
+    auto_rerun: bool = False
+    coarse_step: bool = False
+    last_action: str = ""
 
 
 def load_latest_state(path: Path) -> tuple[dict[str, Any], str, float | None]:
@@ -81,7 +107,7 @@ def send_command(
     request: dict[str, Any],
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
-    timeout: float = 1.5,
+    timeout: float = DEFAULT_TIMEOUT,
 ) -> dict[str, Any]:
     data = (json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8")
     with socket.create_connection((host, port), timeout=timeout) as sock:
@@ -100,33 +126,61 @@ def send_command(
     return {"ok": False, "error": "response root is not an object", "raw": response}
 
 
+def load_describe(host: str, port: int, timeout: float = DEFAULT_TIMEOUT) -> tuple[dict[str, Any], str]:
+    try:
+        response = send_command({"cmd": "describe"}, host, port, timeout)
+    except OSError as exc:
+        return {}, f"describe connect error: {exc}"
+    if response.get("ok") is False:
+        return {}, f"describe error: {response.get('error', response)}"
+    if not isinstance(response.get("params", []), list):
+        return {}, "describe params must be a list"
+    if not isinstance(response.get("actions", []), list):
+        return {}, "describe actions must be a list"
+    return response, ""
+
+
 def build_model(
     state: dict[str, Any],
-    selected: int = 0,
-    status: str = "",
+    describe: dict[str, Any] | None = None,
+    session: DashboardSession | None = None,
     state_error: str = "",
+    describe_error: str = "",
     state_age_s: float | None = None,
-    pending_confirm: str = "",
 ) -> DashboardModel:
+    if session is None:
+        session = DashboardSession()
     frame = _extract_frame(state)
-    params = _extract_params(state, frame)
+    params_state = state
+    params_frame = frame
+    if state_error or (state_age_s is not None and state_age_s > PARAM_VALUE_STALE_SECONDS):
+        params_state = {}
+        params_frame = {}
+    params = _extract_params(params_state, params_frame, describe or {})
     events = _extract_events(state, frame)
+    actions = _extract_actions(describe or {})
+    selected = session.selected
     if params:
         selected = max(0, min(selected, len(params) - 1))
     else:
         selected = 0
 
-    stage = str(state.get("stage") or frame.get("stage") or "-")
+    stage = str((describe or {}).get("stage") or state.get("stage") or frame.get("stage") or "-")
     return DashboardModel(
         stage=stage,
         frame=frame,
         params=params,
+        actions=actions,
         events=events,
         selected=selected,
-        status=status,
+        status=session.status,
         state_error=state_error,
+        describe_error=describe_error,
         state_age_s=state_age_s,
-        pending_confirm=pending_confirm,
+        pending_confirm=session.pending_confirm,
+        auto_rerun=session.auto_rerun,
+        coarse_step=session.coarse_step,
+        last_action=session.last_action,
     )
 
 
@@ -144,16 +198,19 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
     title = f" ev3 dashboard ({model.stage}) "
 
     lines: list[str] = [title.center(width, "-")]
+    mode = "auto={}".format("ON" if model.auto_rerun else "OFF")
+    step_mode = "step={}".format("coarse" if model.coarse_step else "fine")
+    last = model.last_action or "-"
     lines.append(
         _fit(
             f"{running:<8} t={_format_seconds(t_ms)}  dt={_format_ms(dt_ms)}  "
-            f"rev={rev}  state_age={age}    [s/Space STOP]",
+            f"rev={rev}  state_age={age}  {mode}  {step_mode}  last={last}  [s STOP]",
             width,
         )
     )
     lines.append(_fit(_telemetry_summary(frame), width))
     lines.append(sep)
-    lines.append(_fit("params           value        limit          step", width))
+    lines.append(_fit("params           value        limit          step      max_step  unit", width))
 
     if model.params:
         param_room = max(3, min(len(model.params), height // 3))
@@ -164,7 +221,8 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
             lines.append(
                 _fit(
                     f"{marker} {row.name:<15} {_format_value(row.value):<12} "
-                    f"{_format_limit(row.limit):<14} {_format_step(row.step, row.value):<8}",
+                    f"{_format_limit(row.limit):<14} {_format_step(row.step, row.value):<9} "
+                    f"{_format_optional_value(row.max_step):<8} {row.unit}",
                     width,
                 )
             )
@@ -172,11 +230,14 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
         lines.append(_fit("  (latest_state.json has no params)", width))
 
     lines.append(sep)
-    lines.append(_fit("actions: [f] follow_once   [n] nudge   [g] get   [S] save   [R] rollback   [q] quit", width))
+    lines.append(_fit(_format_actions(model.actions), width))
+    lines.append(_fit("keys: [a] auto-rerun  [c] coarse/fine  [Space/.] repeat  [g] refresh  [S] save  [R] rollback  [q] quit", width))
     if model.pending_confirm:
         lines.append(_fit(f"confirm {model.pending_confirm}: press y to run, n/Esc to cancel", width))
     elif model.status:
         lines.append(_fit(f"status: {model.status}", width))
+    elif model.describe_error:
+        lines.append(_fit(f"describe: {model.describe_error}", width))
     elif model.state_error:
         lines.append(_fit(f"state: {model.state_error}", width))
     else:
@@ -195,49 +256,58 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
 def handle_key(
     key: int,
     model: DashboardModel,
+    session: DashboardSession,
     host: str,
     port: int,
-    actions: dict[str, str] | None = None,
-) -> tuple[int, str, str, bool]:
-    actions = actions or DEFAULT_ACTIONS
-    selected = model.selected
-    status = ""
-    pending = model.pending_confirm
+    timeout: float = DEFAULT_TIMEOUT,
+) -> tuple[bool, bool]:
     should_quit = False
+    refresh_describe = False
 
-    if pending:
+    if session.pending_confirm:
         if key in (ord("y"), ord("Y")):
-            status = _send_and_describe({"cmd": pending}, host, port)
-            pending = ""
+            session.status = _send_and_describe({"cmd": session.pending_confirm}, host, port, timeout)
+            session.pending_confirm = ""
         elif key in (27, ord("n"), ord("N")):
-            status = f"{pending} canceled"
-            pending = ""
-        return selected, status, pending, should_quit
+            session.status = f"{session.pending_confirm} canceled"
+            session.pending_confirm = ""
+        return should_quit, refresh_describe
 
     if key in (ord("q"), ord("Q")):
         should_quit = True
     elif key in (curses.KEY_UP,):
-        selected = max(0, selected - 1)
+        session.selected = max(0, model.selected - 1)
     elif key in (curses.KEY_DOWN, 9):
-        selected = (selected + 1) % len(model.params) if model.params else 0
+        session.selected = (model.selected + 1) % len(model.params) if model.params else 0
     elif key in (curses.KEY_LEFT, ord("-")):
-        status = _adjust_selected(model, -1, host, port)
+        session.status = _adjust_selected(model, -1, host, port, timeout)
     elif key in (curses.KEY_RIGHT, ord("+"), ord("=")):
-        status = _adjust_selected(model, 1, host, port)
-    elif key in (ord("s"), ord(" ")):
-        status = _send_and_describe({"cmd": "stop", "source": "dashboard"}, host, port)
+        session.status = _adjust_selected(model, 1, host, port, timeout)
+    elif key == ord("s"):
+        session.status = _send_and_describe({"cmd": "stop", "source": "dashboard"}, host, port, timeout)
+    elif key in (ord(" "), ord(".")):
+        session.status = _repeat_last_action(session, host, port, timeout)
+    elif key in (ord("a"), ord("A")):
+        session.auto_rerun = not session.auto_rerun
+        session.status = "auto-rerun {}".format("ON" if session.auto_rerun else "OFF")
+    elif key in (ord("c"), ord("C")):
+        session.coarse_step = not session.coarse_step
+        session.status = "step mode {}".format("coarse" if session.coarse_step else "fine")
     elif key == ord("S"):
-        pending = "save"
-        status = "confirm save"
+        session.pending_confirm = "save"
+        session.status = "confirm save"
     elif key == ord("R"):
-        pending = "rollback"
-        status = "confirm rollback"
+        session.pending_confirm = "rollback"
+        session.status = "confirm rollback"
     elif key in (ord("g"), ord("G")):
-        status = _send_and_describe({"cmd": "get"}, host, port)
-    elif 0 <= key < 256 and chr(key) in actions:
-        status = _send_and_describe({"cmd": "do", "action": actions[chr(key)], "args": {}}, host, port)
+        refresh_describe = True
+        session.status = "describe refreshed"
+    elif 0 <= key < 256:
+        action = _action_for_key(chr(key), model.actions)
+        if action:
+            session.status = _run_action(action, session, host, port, timeout)
 
-    return selected, status, pending, should_quit
+    return should_quit, refresh_describe
 
 
 def run_curses(args: argparse.Namespace) -> int:
@@ -250,14 +320,15 @@ def _curses_main(stdscr: Any, args: argparse.Namespace) -> int:
     stdscr.keypad(True)
     stdscr.timeout(200)
 
-    selected = 0
-    status = ""
-    pending = ""
+    session = DashboardSession()
+    describe, describe_error = load_describe(args.host, args.port, args.timeout)
+    if describe_error:
+        session.status = describe_error
 
     while True:
         state, state_error, age = load_latest_state(args.state)
-        model = build_model(state, selected, status, state_error, age, pending)
-        selected = model.selected
+        model = build_model(state, describe, session, state_error, describe_error, age)
+        session.selected = model.selected
         height, width = stdscr.getmaxyx()
         stdscr.erase()
         for row, line in enumerate(render_lines(model, width, height)):
@@ -270,7 +341,11 @@ def _curses_main(stdscr: Any, args: argparse.Namespace) -> int:
         key = stdscr.getch()
         if key == -1:
             continue
-        selected, status, pending, should_quit = handle_key(key, model, args.host, args.port)
+        should_quit, refresh_describe = handle_key(key, model, session, args.host, args.port, args.timeout)
+        if refresh_describe:
+            describe, describe_error = load_describe(args.host, args.port, args.timeout)
+            if describe_error:
+                session.status = describe_error
         if should_quit:
             return 0
 
@@ -284,7 +359,28 @@ def _extract_frame(state: dict[str, Any]) -> dict[str, Any]:
     return frame if frame else {}
 
 
-def _extract_params(state: dict[str, Any], frame: dict[str, Any]) -> list[ParamRow]:
+def _extract_params(state: dict[str, Any], frame: dict[str, Any], describe: dict[str, Any]) -> list[ParamRow]:
+    described = describe.get("params")
+    if isinstance(described, list):
+        values = _state_param_values(state, frame)
+        rows = []
+        for item in described:
+            if not isinstance(item, dict) or "name" not in item:
+                continue
+            name = str(item["name"])
+            value = values.get(name, item.get("value"))
+            rows.append(
+                ParamRow(
+                    name=name,
+                    value=value,
+                    limit={"min": item.get("min"), "max": item.get("max")},
+                    step=item.get("step"),
+                    max_step=item.get("max_step"),
+                    unit=str(item.get("unit") or ""),
+                )
+            )
+        return rows
+
     source = state.get("params")
     if source is None:
         source = frame.get("params")
@@ -320,6 +416,50 @@ def _extract_params(state: dict[str, Any], frame: dict[str, Any]) -> list[ParamR
     return []
 
 
+def _state_param_values(state: dict[str, Any], frame: dict[str, Any]) -> dict[str, Any]:
+    source = state.get("params")
+    if source is None:
+        source = frame.get("params")
+    if isinstance(source, dict):
+        values = source.get("values") or source.get("current") or source.get("params")
+        if isinstance(values, dict):
+            return dict(values)
+        return {k: v for k, v in source.items() if k not in {"limits", "param_limits", "max_step", "steps"}}
+    values = state.get("param_values")
+    if isinstance(values, dict):
+        return dict(values)
+    return {}
+
+
+def _extract_actions(describe: dict[str, Any]) -> list[ActionBinding]:
+    raw_actions = describe.get("actions")
+    if not isinstance(raw_actions, list):
+        return []
+    bindings = []
+    used = set()
+    for item in raw_actions:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not name:
+            continue
+        key = _choose_action_key(item, used, len(bindings))
+        used.add(key)
+        bindings.append(ActionBinding(key=key, name=str(name), label=str(item.get("label") or name)))
+    return bindings
+
+
+def _choose_action_key(action: dict[str, Any], used: set[str], index: int) -> str:
+    for key in ACTION_KEYS[index:index + 1] + ACTION_KEYS:
+        if key not in used:
+            return key
+    name = str(action.get("name") or "")
+    for char in name:
+        if char.isalnum() and char not in used:
+            return char
+    return "?"
+
+
 def _extract_events(state: dict[str, Any], frame: dict[str, Any]) -> list[dict[str, Any]]:
     value = state.get("recent_events") or state.get("events") or state.get("last_events")
     if value is None:
@@ -335,7 +475,7 @@ def _extract_events(state: dict[str, Any], frame: dict[str, Any]) -> list[dict[s
     return events
 
 
-def _adjust_selected(model: DashboardModel, direction: int, host: str, port: int) -> str:
+def _adjust_selected(model: DashboardModel, direction: int, host: str, port: int, timeout: float) -> str:
     if not model.params:
         return "no params to adjust"
     row = model.params[model.selected]
@@ -345,16 +485,51 @@ def _adjust_selected(model: DashboardModel, direction: int, host: str, port: int
     step = _as_number(row.step)
     if step is None or step == 0:
         step = _infer_step(current)
+    if model.coarse_step:
+        step = step * 5
     new_value = _normalize_number(current + direction * step, row.value)
-    return _send_and_describe({"cmd": "set", "name": row.name, "value": new_value}, host, port)
+    response, status = _send_and_status({"cmd": "set", "name": row.name, "value": new_value}, host, port, timeout)
+    if response.get("ok") and model.auto_rerun and model.last_action:
+        action_status = _send_and_describe(
+            {"cmd": "do", "action": model.last_action, "args": {}},
+            host,
+            port,
+            timeout,
+        )
+        return status + " | auto " + action_status
+    return status
 
 
-def _send_and_describe(request: dict[str, Any], host: str, port: int) -> str:
+def _send_and_describe(request: dict[str, Any], host: str, port: int, timeout: float = DEFAULT_TIMEOUT) -> str:
+    return _send_and_status(request, host, port, timeout)[1]
+
+
+def _send_and_status(request: dict[str, Any], host: str, port: int, timeout: float) -> tuple[dict[str, Any], str]:
     try:
-        response = send_command(request, host, port)
+        response = send_command(request, host, port, timeout)
     except OSError as exc:
-        return f"{request.get('cmd')}: connect error: {exc}"
-    return f"{request.get('cmd')}: {_compact_response(response)}"
+        response = {"ok": False, "error": "connect error: {}".format(exc)}
+    return response, f"{request.get('cmd')}: {_compact_response(response)}"
+
+
+def _action_for_key(key: str, actions: list[ActionBinding]) -> str:
+    for action in actions:
+        if action.key == key:
+            return action.name
+    return ""
+
+
+def _run_action(action: str, session: DashboardSession, host: str, port: int, timeout: float) -> str:
+    response, status = _send_and_status({"cmd": "do", "action": action, "args": {}}, host, port, timeout)
+    if response.get("ok"):
+        session.last_action = action
+    return status
+
+
+def _repeat_last_action(session: DashboardSession, host: str, port: int, timeout: float) -> str:
+    if not session.last_action:
+        return "no last action"
+    return _run_action(session.last_action, session, host, port, timeout)
 
 
 def _compact_response(response: dict[str, Any]) -> str:
@@ -383,6 +558,13 @@ def _telemetry_summary(frame: dict[str, Any]) -> str:
         return "  ".join(parts)
     items = [(k, v) for k, v in frame.items() if k not in META_KEYS and not isinstance(v, (dict, list))]
     return "  ".join(f"{k}={_format_value(v)}" for k, v in items[:6]) or "(no telemetry frame)"
+
+
+def _format_actions(actions: list[ActionBinding]) -> str:
+    if not actions:
+        return "actions: (none from describe)"
+    parts = ["[{}] {}".format(action.key, action.label) for action in actions]
+    return "actions: " + "   ".join(parts)
 
 
 def _format_event(event: dict[str, Any]) -> str:
@@ -441,6 +623,12 @@ def _format_step(step: Any, value: Any) -> str:
     return _format_value(step)
 
 
+def _format_optional_value(value: Any) -> str:
+    if value is None:
+        return "-"
+    return _format_value(value)
+
+
 def _truth_label(value: Any) -> str:
     if value is True:
         return "RUNNING"
@@ -496,6 +684,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH, help="latest_state.json path")
     parser.add_argument("--host", default=DEFAULT_HOST, help="tuning server host for key commands")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="tuning server port for key commands")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="tuning server command timeout")
     parser.add_argument("--once", action="store_true", help="render once to stdout and exit")
     parser.add_argument("--no-curses", action="store_true", help="alias for --once smoke rendering")
     parser.add_argument("--width", type=int, default=100, help="stdout render width")
@@ -506,10 +695,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     if args.once or args.no_curses:
+        describe, describe_error = load_describe(args.host, args.port, args.timeout)
         state, state_error, age = load_latest_state(args.state)
-        model = build_model(state, state_error=state_error, state_age_s=age)
+        session = DashboardSession(status=describe_error)
+        model = build_model(state, describe, session, state_error, describe_error, age)
         print("\n".join(render_lines(model, args.width, args.height)))
-        return 1 if state_error else 0
+        return 1 if state_error and describe_error else 0
     return run_curses(args)
 
 

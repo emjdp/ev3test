@@ -10,13 +10,16 @@ import threading
 
 
 class SharedParams(object):
-    def __init__(self, defaults, limits, max_step, save_path):
+    def __init__(self, defaults, limits, max_step, save_path, ui_step=None, units=None, param_order=None):
         self._lock = threading.RLock()
         self._defaults = dict(defaults)
         self._limits = dict(limits)
         self._max_step = dict(max_step or {})
+        self._ui_step = dict(ui_step or {})
+        self._units = dict(units or {})
         self._save_path = save_path
         self._rev = 0
+        self._order = list(param_order or self._defaults.keys())
 
         missing_limits = []
         for name in self._defaults:
@@ -36,6 +39,9 @@ class SharedParams(object):
         ok, msg = self._validate_all(self._values)
         if not ok:
             raise ValueError(msg)
+        ok, msg = self._validate_metadata()
+        if not ok:
+            raise ValueError(msg)
 
     def snapshot(self):
         with self._lock:
@@ -48,6 +54,29 @@ class SharedParams(object):
     def rev(self):
         with self._lock:
             return self._rev
+
+    def describe(self):
+        with self._lock:
+            rows = []
+            names = list(self._order)
+            for name in self._values:
+                if name not in names:
+                    names.append(name)
+            for name in names:
+                if name not in self._values:
+                    continue
+                lo, hi = self._limits[name]
+                max_step = self._max_step.get(name)
+                rows.append({
+                    "name": name,
+                    "value": self._values[name],
+                    "min": lo,
+                    "max": hi,
+                    "step": self._describe_step(name, lo, hi, max_step),
+                    "max_step": max_step,
+                    "unit": self._units.get(name, ""),
+                })
+            return rows
 
     def set(self, name, value):
         with self._lock:
@@ -145,6 +174,45 @@ class SharedParams(object):
             return False, "out of range [{}, {}] for {}: {}".format(lo, hi, name, value)
         return True, "ok"
 
+    def _validate_metadata(self):
+        known = set(self._limits.keys())
+        for name in self._max_step:
+            if name not in known:
+                return False, "unknown max_step param: {}".format(name)
+            if isinstance(self._max_step[name], bool) or not isinstance(self._max_step[name], numbers.Number):
+                return False, "max_step {} must be numeric".format(name)
+            if self._max_step[name] <= 0:
+                return False, "max_step {} must be positive".format(name)
+        for name in self._ui_step:
+            if name not in known:
+                return False, "unknown ui_step param: {}".format(name)
+            if isinstance(self._ui_step[name], bool) or not isinstance(self._ui_step[name], numbers.Number):
+                return False, "ui_step {} must be numeric".format(name)
+            if self._ui_step[name] <= 0:
+                return False, "ui_step {} must be positive".format(name)
+        for name in self._units:
+            if name not in known:
+                return False, "unknown unit param: {}".format(name)
+        for name in self._order:
+            if name not in known:
+                return False, "unknown param_order param: {}".format(name)
+        return True, "ok"
+
+    def _describe_step(self, name, lo, hi, max_step):
+        if name in self._ui_step:
+            return self._ui_step[name]
+        if max_step is not None:
+            return max_step / 10.0
+        return self._infer_step(lo, hi)
+
+    def _infer_step(self, lo, hi):
+        span = abs(hi - lo)
+        if span >= 100:
+            return 1
+        if span >= 10:
+            return 0.1
+        return 0.01
+
 
 def _self_test():
     import tempfile
@@ -155,8 +223,15 @@ def _self_test():
         {"kp": (0.0, 3.0), "base_speed": (5, 45)},
         {"kp": 0.1, "base_speed": 5},
         path,
+        {"kp": 0.01, "base_speed": 1},
+        {"kp": "", "base_speed": "%"},
+        ["kp", "base_speed"],
     )
     assert params.rev() == 0
+    described = params.describe()
+    assert described[0]["name"] == "kp"
+    assert described[0]["step"] == 0.01
+    assert described[1]["unit"] == "%"
     assert params.set("missing", 1)[0] is False
     assert params.set("kp", 9)[0] is False
     assert params.set("kp", 0.8)[0] is False

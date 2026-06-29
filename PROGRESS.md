@@ -47,6 +47,8 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       - 완료(하드웨어 무관, PC 검증): `lib/` shared_params·telemetry·decision_log·
         tuning_server·pid + `tools/` robotctl(get/set/stop/do/save/rollback/latest)·
         최소 dashboard·watcher·replay.
+      - 확장 완료(하드웨어 무관, PC 검증): `describe` 계약(stage/params/actions), params
+        UI 메타(step/unit), data-driven dashboard, 액션 반복/자동 재실행/coarse step.
       - `lib/hardware.py` 는 **Stage 0 실기 Done 후** (모터 극성·트림 결과 필요).
       - ⚠️ **MVP 한정**: 무거운 대시보드(그래프/자동튜닝)는 금지(LIVE_TUNING.md). py_compile + PC 테스트.
 - [ ] (이후) **Stage 1~7 은 한 번에 하나씩**, 각 이전 단계 **실기 Done 후**에만 착수.
@@ -56,6 +58,21 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — 인프라 describe + data-driven 대시보드 확장 (Agent: codex)
+- `SharedParams` 에 `ui_step`/`units`/`param_order` 메타와 `describe()` 를 추가해
+  value/min/max/step/max_step/unit 을 서버가 그대로 노출할 수 있게 했다(기존 생성자 호출은 유지).
+- `TuningServer` 에 `{"cmd":"describe"}` 를 추가하고, `stage` + actions manifest 주입을
+  지원했다. 데모 서버는 PC 단독 테스트용 params/actions 를 반환한다.
+- `tools/dashboard.py` 를 describe 기반으로 변경: params 행과 action 키를 동적으로 구성하고,
+  `1..` 액션 실행, `Space`/`.` 마지막 액션 반복, `a` 자동 재실행, `c` coarse step 을 지원한다.
+  상태/이벤트는 계속 `runs/current/latest_state.json` 을 읽고, 키 입력 때만 서버 명령을 보낸다.
+- `tools/robotctl.py describe` 를 추가했다. `docs/specs/00_infra_dashboard.md` 는 REVIEWED 상태를
+  유지하며 describe 스키마·data-driven 대시보드·step/max_step 메타를 반영했다.
+- PC 검증: `python3 -m py_compile lib/*.py tools/*.py`, `lib/` f-string 없음 확인, shared_params/
+  tuning_server self-test, 데모 서버 `describe/set/do`, dashboard `--once`, 키 핸들러 smoke
+  (액션 키/반복/자동 재실행/coarse 거부), watcher 1회 기록 후 렌더 확인. **실기 검증 필요**:
+  Stage 1/2 통합 때 브릭 부하·SSH 터널·회전 보정 루프 체감을 확인한다.
 
 ### 2026-06-30 — 인프라 MVP 구현 + PC 통합 검증 (Agent: codex)
 - `lib/` 코어 구현: `SharedParams`(범위/스텝 거부, rev, save/rollback), `Telemetry`,

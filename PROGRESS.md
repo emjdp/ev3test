@@ -33,6 +33,20 @@
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-06-29 — 판단 기록·재연·빠른 보정 루프 추가 (문서 반영) (Agent: claude)
+- 실사용 페인포인트 반영: ① 좌회전 하나에 1시간(느린 반복) ② "왜 그렇게 움직였나" 안 보임
+  ③ 오늘의 실패(분기/코너 오버슛, 노드 지나 빈 바닥 색 측정)를 실시간 수정·재연하고 싶음.
+- 새 문서 [docs/DECISIONS.md](docs/DECISIONS.md): 판단층↔구동층 분리, reason_code 카탈로그,
+  events.jsonl 스키마, 두 실패를 로그로 잡는 법, `robotctl do <action>` 단일 트리거,
+  record/replay, "params 6개 이하 + 로그가 짚는 값만" 원칙.
+- LIVE_TUNING: 대시보드는 *나중*, do/reason/replay 가 먼저. CLI 에 `do`·`replay.py` 추가.
+  빌드순서에 reason logging·replay 끼워넣음.
+- STAGES: Stage2(=`do turn_*` 보정 루프), Stage3(`node_advance`+실패#1), Stage4(색읽기 위치
+  +실패#2) 반영. Stage1부터 reason_code 기록 명시.
+- AGENTS: 판단층 분리·reason 로그·do 트리거·replay 를 코드 규약에 추가.
+- README: 문서 목록/라이브튜닝 섹션에 DECISIONS 연결.
+- 코드 미작성(문서 단계).
+
 ### 2026-06-29 — 라이브 튜닝 구조 채택 (문서 반영) (Agent: claude)
 - "EV3=주행 / 노트북=관제소" 라이브 튜닝 구조를 검토·확정해 문서에 반영(코드는 아직).
 - 새 문서 [docs/LIVE_TUNING.md](docs/LIVE_TUNING.md): 서버/CLI/telemetry/안전장치/빌드순서/

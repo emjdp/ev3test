@@ -9,6 +9,10 @@
 > 튜닝까지 다 지으면, 이전 프로젝트가 망한 방식(다 만들어놓고 눈감고 튜닝)을 그대로
 > 반복하는 것이다. **절대 금지.**
 
+> **우선순위 주의:** 대시보드(Streamlit 등)는 *나중*이다. 먼저 필요한 건 ① 단일 동작
+> 원격 트리거(`robotctl do`)로 빠른 보정 루프, ② 판단 기록(reason logging), ③ 재연(replay).
+> 이 셋은 [DECISIONS.md](DECISIONS.md) 에 정의했고, 대시보드보다 먼저 만든다.
+
 ## 전체 그림
 
 ```
@@ -98,7 +102,18 @@ python tools/robotctl.py save          # config/ 에 저장(검증된 값)
 python tools/robotctl.py rollback      # 마지막 저장값으로 복귀
 ```
 
+### 단일 동작 트리거 + 재연 (빠른 보정 루프) — 상세는 [DECISIONS.md](DECISIONS.md)
+```bash
+python tools/robotctl.py do turn_left  # 동작 1회 실행(재배포 0), reason 로그 남김
+python tools/robotctl.py do read_color # 현재 위치 색 + reflect
+python tools/replay.py runs/<ts> --set node_advance=8   # 로봇 없이 판단 재연
+```
+
 ## 실시간으로 여는 값 (단계별, 처음엔 작게)
+
+> **한 단계에서 라이브로 노출하는 params 는 6개 이하.** 그 단계가 실제로 만지는 것만.
+> 나머지는 검증된 기본값으로 `config/` 에 묻어 둔다. 그리고 **감으로 만지지 말고
+> reason 로그가 짚는 값만** 만진다([DECISIONS.md](DECISIONS.md) 6장).
 
 ### Stage 1 (라인 PID) — 이것만
 ```json
@@ -128,13 +143,15 @@ python tools/robotctl.py rollback      # 마지막 저장값으로 복귀
 0. Stage 0  : plain 연결확인 (네트워크 없음)
 1. infra MVP + Stage 1 동시:
      lib(shared_params / telemetry / tuning_server / pid)
-     + tools/robotctl.py (get / set / stop)
+     + 판단층↔구동층 분리 + reason logging (events 기록)  ← DECISIONS.md
+     + tools/robotctl.py (get / set / stop / do)
      + 라인트레이싱 제어 루프 (kp, kd, base_speed, target_reflect)
-2. tools/telemetry_watcher.py : 노트북이 runs/current/*.json(l) 기록
-3. → Stage 1 을 라이브로 튜닝해 실기 Done 까지
-4. Stage 2 : params 에 회전 보정계수(엔코더) 추가
-5. Stage 3~ : 단계마다 params/telemetry 필드만 늘림
-6. (선택) dashboard, (한참 뒤) approve 방식 반자동
+2. tools/telemetry_watcher.py : 노트북이 runs/<ts>/{samples,events}.jsonl 기록
+3. tools/replay.py : 기록한 samples 를 판단층에 재연(로봇 없이)
+4. → Stage 1 을 라이브로 튜닝해 실기 Done 까지
+5. Stage 2 : 회전을 `do turn_*` 로 트리거 + turn 보정계수(엔코더) 추가
+6. Stage 3~ : 단계마다 params/telemetry/reason_code 만 늘림
+7. (한참 뒤) dashboard(Streamlit), (그다음) approve 방식 반자동
 ```
 
 ## 디렉토리 구조 (목표)

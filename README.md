@@ -35,6 +35,10 @@ telemetry를 보며 튜닝**하는 구조를 쓴다(SSH 터널 + JSON 소켓).
 
 전체 설계·기술결정·안전장치·빌드순서·에이전트 워크플로우: **[docs/LIVE_TUNING.md](docs/LIVE_TUNING.md)**.
 
+대시보드보다 먼저 만드는 것: ① 단일 동작 원격 트리거(`robotctl do`)로 **빠른 보정
+루프**(회전 하나 1시간 → 1분), ② **판단 기록**("110 코너 → 좌회전"처럼 왜 그 행동을
+했는지), ③ **재연**(기록한 센서로 로봇 없이 판단 다시 돌려보기). → **[docs/DECISIONS.md](docs/DECISIONS.md)**.
+
 ## 하드웨어 배선 (이전 로봇에서 검증됨)
 
 자세한 내용·튜닝 주의점은 [docs/HARDWARE.md](docs/HARDWARE.md).
@@ -75,7 +79,8 @@ ev3test/
 ├── docs/
 │   ├── HARDWARE.md    # 검증된 배선/포트/주의점
 │   ├── STAGES.md      # 단계별 상세 + 통과 기준(Done)
-│   └── LIVE_TUNING.md # 라이브 튜닝 구조(서버/CLI/telemetry/안전/에이전트)
+│   ├── LIVE_TUNING.md # 라이브 튜닝 구조(서버/CLI/telemetry/안전/에이전트)
+│   └── DECISIONS.md   # 판단 기록(reason)·재연(replay)·단일동작 트리거(do)
 ├── lib/               # 브릭에서 import 하는 공용 모듈 (shared_params/telemetry/tuning_server/pid/hardware)
 ├── stages/            # 단계별 독립 실행 진입점 (stageN_*.py, lib import)
 ├── tools/             # 노트북 쪽: robotctl, telemetry_watcher 등

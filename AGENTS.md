@@ -38,6 +38,16 @@
   실행하지 않는다. telemetry/로그를 읽고 조정안을 내면 **사람이** 적용한다.
 - 값은 `PARAM_LIMITS`(범위)·`MAX_STEP`(1회 변화폭)을 넘지 않게 제안한다.
 
+### 판단 기록 · 재연 (Stage 1부터) — 구조는 [docs/DECISIONS.md](docs/DECISIONS.md)
+
+- **판단층(순수)↔구동층(ev3dev2) 분리.** 판단은 `(센서, params, 상태) → (행동, reason)`
+  순수 함수로 두어 PC 에서 import·테스트·재연이 되게 한다.
+- **모든 상태전이/행동 결정에 `reason_code` 를 붙여 events 로그에 남긴다.** 위치 의존
+  버그를 잡게 `dist_mm`/`reflect` 같은 detail 도 함께 남긴다(빈 바닥 색 측정·분기 오버슛).
+- 새 판단을 추가하면 DECISIONS.md 의 reason_code 카탈로그에 1줄 추가한다.
+- 보정은 코드 수정·재배포가 아니라 **`robotctl do <action>` 단일 트리거 + 값 하나 변경**
+  으로 돈다. 판단/타이밍 버그는 `tools/replay.py` 로 로봇 없이 먼저 재연해 본다.
+
 ## 2. 코드 규약
 
 - 대상 런타임: **ev3dev (ev3dev2 파이썬 라이브러리), Python 3.** 브릭에서 실행.

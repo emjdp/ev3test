@@ -25,10 +25,22 @@
 ## TODO (다음 할 일)
 
 - [ ] Stage 0 스크립트 작성: 7개 장치(모터3·센서4) 포트 인식 + 값 읽기 확인.
+      여기서 `python3 --version` 으로 EV3 Python 버전 확정(stretch=3.5면 f-string 불가).
 - [ ] 실기에서 Stage 0 실행, 좌/우 모터 방향 확인.
-- [ ] Stage 0 Done 후 Stage 1(기초 라인트레이싱) 착수.
+- [ ] Stage 1 착수 시 라이브 튜닝 infra MVP 최초 구현
+      (`lib/` shared_params·telemetry·tuning_server·pid + `tools/robotctl.py` get/set/stop).
+- [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-29 — 라이브 튜닝 구조 채택 (문서 반영) (Agent: claude)
+- "EV3=주행 / 노트북=관제소" 라이브 튜닝 구조를 검토·확정해 문서에 반영(코드는 아직).
+- 새 문서 [docs/LIVE_TUNING.md](docs/LIVE_TUNING.md): 서버/CLI/telemetry/안전장치/빌드순서/
+  에이전트 워크플로우. 핵심 결정: 제어루프↔네트워크 분리, threaded accept, dt 측정,
+  telemetry 파일쓰기는 노트북, 회전은 엔코더+보정계수, BACK 1차 정지, 에이전트는 제안만.
+- README/STAGES/AGENTS 갱신: 라이브 튜닝을 "스테이지가 아닌 공용 도구"로 못박고
+  단계와 함께 자라게. 목표 디렉토리(lib/tools/config/runs/dashboard) 반영. `runs/` gitignore.
+- **다음**: Stage 0 스크립트(여전히 plain 연결확인, 네트워크 없음).
 
 ### 2026-06-29 — 프로젝트 초기 세팅 (Agent: claude)
 - 단계별 재구축 구조로 새 프로젝트 디렉토리(`ev3test`) 세팅.

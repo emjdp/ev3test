@@ -13,5 +13,8 @@ venv/
 logs/*.log
 logs/*.csv
 
+# 라이브 튜닝 실행 산출물 (telemetry/상태): 추적 안 함. config/ 의 저장값만 추적.
+runs/
+
 # OS
 .DS_Store

@@ -59,6 +59,13 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-06-30 — 실기 주행 준비 및 단계별 보정 가이드라인 보고서 작성 (Agent: antigravity)
+- 내일 아침 9시부터 실기 테스트 및 구현을 즉시 시작할 수 있는 종합 가이드라인 [tomorrow_morning_guide.md](file:///home/emjdp/.gemini/antigravity/brain/8a7d13ee-e3fd-4744-bcfb-f1f7101d7367/tomorrow_morning_guide.md) 작성 완료.
+- 블루투스 PAN 네트워크 설정 방법, SSH 8765 포트포워딩 가이드 포함.
+- 터미널 3분할 연동 실행법(SSH 브릭 제어, telemetry_watcher.py, curses dashboard.py) 상세 정리.
+- Stage 0(포트 검증), Stage 1(PID 추종), Stage 2(회전 보정)의 구체적인 보정 기준 및 절차 명시.
+- Stage 3~7 구현을 위해 Codex/Claude/Gemini 에이전트에게 내릴 최적화된 프롬프트 템플릿 세트(Carousel 형식) 제공.
+
 ### 2026-06-30 — Stage0 출력 ASCII 잔여 문자열 마무리 (Agent: codex)
 - antigravity 의 한글 출력 제거 후 남아 있던 `stage0_check.py` 의 position fallback 출력
   1줄을 ASCII(`position unavailable, opened OK`)로 교체했다.

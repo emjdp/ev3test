@@ -42,12 +42,28 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - [ ] **실기에서 Stage 0 실행** (`python3 stages/stage0_check.py`):
       ① `python` 버전 → PROGRESS 기록(3.5 여부 확정) ② 7개 포트 OK + 센서값 sanity
       ③ 좌/우 모터 방향(기대와 다르면 "다름"만 기록, 수정은 Stage 1). → Done 이면 🟢.
-- [ ] (이후) 나머지 스테이지는 codex 가 담당.
+- [ ] **인프라 MVP 빌드 — codex 담당 (다음 작업).** 스테이지가 아닌 공용 도구라 지금 만들 수
+      있다. 명세: [00_infra_dashboard.md](docs/specs/00_infra_dashboard.md) (REVIEWED).
+      - 지금 가능(하드웨어 무관, PC 단위테스트): `lib/` shared_params·telemetry·decision_log·
+        tuning_server·pid + `tools/` robotctl(get/set/stop/do)·최소 dashboard·watcher·replay.
+      - `lib/hardware.py` 는 **Stage 0 실기 Done 후** (모터 극성·트림 결과 필요).
+      - ⚠️ **MVP 한정**: 무거운 대시보드(그래프/자동튜닝)는 금지(LIVE_TUNING.md). py_compile + PC 테스트.
+- [ ] (이후) **Stage 1~7 은 한 번에 하나씩**, 각 이전 단계 **실기 Done 후**에만 착수.
+      ⚠️ 1~7 일괄 작성 금지(AGENTS.md 1절). 담당은 **codex·claude 협업/교대**(둘이 번갈아 또는 공동).
 - [ ] (Stage 1 착수 시) 라이브 튜닝 infra MVP 구현 — `00_infra_dashboard.md`(REVIEWED) 계약대로:
       `lib/` shared_params·telemetry·decision_log·tuning_server·pid + `tools/` robotctl·dashboard·watcher.
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — 소유권/순서 정리: 인프라는 codex, 스테이지는 일괄 금지 (Agent: claude)
+- 확인: Stage 1~7 코드를 미리 일괄 작성하는 것은 금지(AGENTS.md 1절). codex 가 "나머지"를
+  맡되 **단계별로 하나씩, 이전 단계 실기 Done 후**. claude 의 이전 "codex가 1~7" 표현이
+  batch 로 읽힐 소지가 있어 바로잡음.
+- "미리 만들 수 있는 것"은 스테이지가 아니라 **인프라/대시보드 도구**(공용 도구라 규칙 대상 아님,
+  PC 단위테스트 가능). → **인프라 MVP 빌드를 codex 에 배정**(다음 작업). MVP 한정.
+- 이후 Stage 1~7 은 **codex·claude 협업/교대**로 진행하기로 결정.
+- claude 는 현재 추가 빌드 없음(인프라/스테이지 모두 codex 시작). Stage 0 실기 검증 대기.
 
 ### 2026-06-29 — Stage 0 스크립트 구현 (Agent: claude)
 - `stages/stage0_check.py` 작성(명세 docs/specs/stage0_connection.md 기반).

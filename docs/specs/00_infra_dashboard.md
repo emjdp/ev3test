@@ -1,6 +1,6 @@
 # Infra — 라이브 튜닝 + 터미널 TUI 대시보드 + record/replay 구현 명세
 
-> 상태: DRAFT (실기 미검증)
+> 상태: REVIEWED (설계 검토 완료, 실기 미검증) — 검토 반영: 통신 단일 채널화(#2, 6.1절).
 > 선행: Stage 0 (EV3 Python 버전 확정 — 3.5 면 f-string 금지 확정). 인프라는 Stage 1 과
 > **동시에** 최초 등장하지만, 인프라 자체는 스테이지가 아니라 **공용 도구(infra)** 다.
 > 통과기준(Done): 이 인프라는 단독 "Done" 이 없다. **Stage 1 라인트레이싱을 노트북에서
@@ -313,8 +313,18 @@ def update(self, error, dt):
 {"ok":true,  "saved":"config/stage1.json"}                // save
 {"ok":true,  "latest":{"t_ms":13120,"reflect":34,...}}    // get_latest
 ```
-- telemetry 는 **push 안 함**(기본 pull): watcher/대시보드가 `get_latest` 를 주기적으로
-  polling. ([LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 2의 pull 모델, 기술결정 4와 부합.)
+- telemetry 는 **push 안 함**(기본 pull): `get_latest` 를 주기적으로 polling.
+  ([LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 2의 pull 모델, 기술결정 4와 부합.)
+
+> **검토 반영 #2 — 브릭 연결은 단일 채널.** EV3 는 단일코어 ~300MHz 라, 대시보드와 watcher 가
+> *각각* 브릭에 붙어 폴링하면 thread/GIL 경쟁으로 제어 주기가 흔들릴 수 있다. 그래서:
+> - **`telemetry_watcher.py` 만 브릭에 상시 접속**해 `get_latest` 를 **저주파(3~5Hz)** 로 polling
+>   하고 `runs/<ts>/` 에 기록한다(유일한 telemetry 소비자).
+> - **`dashboard.py` 는 브릭이 아니라 watcher 가 쓴 로컬 파일(`runs/current/latest_state.json`)
+>   을 읽어** 렌더링한다(브릭에 telemetry 폴링 안 함).
+> - 사람이 키를 누를 때 발생하는 `set`/`do`/`stop` 같은 **명령만** 브릭에 보낸다(저빈도, 키 입력당
+>   1회). 즉 상시 부하는 watcher 단일 연결 하나로 한정된다.
+> - watcher 미실행 시를 위해 대시보드에 "브릭 직접 폴링" 폴백 모드를 옵션으로 둘 수 있다(기본 OFF).
 
 ### 6.2 `tools/robotctl.py` — 비대화형 CLI (노트북, 최신 문법 OK)
 스크립트·에이전트용. 한 명령 = 한 요청 = 한 응답 후 종료.
@@ -330,7 +340,9 @@ python tools/robotctl.py latest          # get_latest 보기 좋게 출력
 - 종료코드: 성공 0, 거부/에러 1(스크립트가 분기 가능). `--host/--port` 옵션(기본 127.0.0.1:8765).
 
 ### 6.3 `tools/dashboard.py` — stdlib curses TUI (노트북)
-한 화면에 상태/최근 이벤트/조정 가능한 params + **큰 STOP**. `get_latest` 를 ~10Hz polling.
+한 화면에 상태/최근 이벤트/조정 가능한 params + **큰 STOP**. 상태 표시는 watcher 가 쓴
+로컬 `runs/current/latest_state.json` 을 읽어 갱신(브릭 직접 폴링 안 함, 검토 반영 #2).
+키 입력 시에만 `set`/`do`/`stop` 명령을 브릭에 보낸다.
 
 레이아웃(개념):
 ```
@@ -452,8 +464,9 @@ PC 엔 ev3dev2 가 없으므로 **문법/판단층만** 검증한다.
   타이밍 실기 미검증(makefile close, conn 정리).
 - **watchdog 기본 ON/OFF**: 위에선 Stage 1 OFF 제안이나, 실기에서 "터널 끊김 시 폭주"
   위험을 보고 단계별로 재결정.
-- **telemetry pull vs push**: 기본 pull(get_latest polling). polling 주기(10Hz 가정)가
-  곡선 튜닝에 충분한지, push 가 필요한지 실기에서 판단.
+- **telemetry pull vs push / 폴링 주기**: 기본 pull, **watcher 단일 연결이 3~5Hz polling**
+  (검토 반영 #2). 이 주기가 곡선 튜닝·대시보드 체감에 충분한지, push 가 필요한지 실기 판단.
+  watcher↔대시보드 사이 로컬 갱신 방식(파일 vs 로컬 소켓)도 구현 시 확정.
 - **`get_latest` 가 set 과 같은 thread 경쟁** 시 지연/락 보유시간 — 실측 필요(snapshot 으로
   최소화하지만 확인).
 - **runs/ 타임스탬프 형식**: `2026-06-29T14-03` 같은 콜론 없는 형식(파일명 안전) 제안 —

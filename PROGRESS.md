@@ -22,21 +22,41 @@
 
 상태 표기: ⬜ 시작 전 / 🟡 진행 중 / 🟢 실기 Done / 🔴 막힘
 
+## 명세(docs/specs/) 검토 처리 현황
+
+antigravity 검토 보고서(9개 지적)를 claude 가 재검토해 우선순위 재조정 후 반영. 상태 표기는
+DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢 로 — [specs/README.md](docs/specs/README.md)).
+
+- ✅ **near-term 반영 완료(REVIEWED 승격)**:
+  - `00_infra_dashboard.md` — #2 브릭 통신 단일 채널(watcher만 상시접속·3~5Hz, 대시보드는 로컬 파일 읽기).
+  - `stage1_linetrace.md` — #4 라인유실 상태전이 순수화(`decide_line`), #8 D항 EMA 필터(내부상수).
+- ✅ **해당 스테이지 11절에 검토 메모만 추가(DRAFT 유지, 그 단계 착수 시 반영)**:
+  - `stage5` #6 LEAF U턴 강제 / `stage6` #3 복귀 노드패턴 검증·#5 재귀→명시스택 /
+    `stage7` #1 초음파 백그라운드 폴링·#7 그리퍼 스톨 보호.
+- ⏸ **보류**: #9(pre_uturn 등 미리 라이브 개방) — 6개 규칙상 실기 튜닝이 요구할 때 개방.
+- 판정 근거: High 로 분류됐던 #1/#3/#5 는 Stage 6/7(먼 미래 DRAFT)이라 Stage 0/1 을 막지 않음.
+
 ## TODO (다음 할 일)
 
-- [ ] 사양서(docs/specs/) 보완 및 승인 처리 (DRAFT -> APPROVED)
-      - [ ] `stage1_linetrace.md` 판단층-구동층 분리 강화 (`decide_stage1` 순수함수 명시)
-      - [ ] `stage5_integration.md` LEAF 도달 시 U턴 강제화 등 예외 처리 추가
-      - [ ] `stage6_explore_return.md` 재귀 제거 및 복귀 시 노드 패턴 검증 도입
-      - [ ] `stage7_gripper.md` 초음파 센서 비차단 백그라운드 스레드 폴링화 및 그리퍼 스톨 예외 설계
-- [ ] Stage 0 스크립트 작성: 7개 장치(모터3·센서4) 포트 인식 + 값 읽기 확인.
-      여기서 `python3 --version` 으로 EV3 Python 버전 확정(stretch=3.5면 f-string 불가).
+- [ ] **Stage 0 스크립트**: 7개 장치(모터3·센서4) 포트 인식 + 값 읽기 확인.
+      `python3 --version` 으로 EV3 Python 버전 확정(stretch=3.5면 f-string 불가).
 - [ ] 실기에서 Stage 0 실행, 좌/우 모터 방향 확인.
-- [ ] Stage 1 착수 시 라이브 튜닝 infra MVP 최초 구현
-      (`lib/` shared_params·telemetry·tuning_server·pid + `tools/robotctl.py` get/set/stop).
+- [ ] (Stage 1 착수 시) 라이브 튜닝 infra MVP 구현 — `00_infra_dashboard.md`(REVIEWED) 계약대로:
+      `lib/` shared_params·telemetry·decision_log·tuning_server·pid + `tools/` robotctl·dashboard·watcher.
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-29 — antigravity 검토 보고서 재검토 + 반영 (Agent: claude)
+- antigravity 보고서(9개 지적)를 명세 원문과 대조 검토(#2 통신·#4 Stage1 분리 직접 확인 — 보고서 정확).
+- 우선순위 재조정: High 로 표시된 #1/#3/#5 는 Stage 6/7(먼 미래 DRAFT)이라 지금 막지 않음.
+  지금 만들 것(인프라+Stage1)에 영향 주는 #2/#4/#8 만 즉시 반영.
+- 반영: 00_infra(#2 단일 채널)·stage1(#4 순수전이·#8 EMA) → REVIEWED 승격.
+  stage5(#6)·stage6(#3,#5)·stage7(#1,#7) 은 11절에 검토 메모 추가(DRAFT 유지).
+- 상태 규약 정리: specs 는 DRAFT→REVIEWED 2단계, 실기 Done 은 PROGRESS 🟢 로 구분
+  (보고서의 'APPROVED' 대신 — 실기검증과 의미 분리). specs/README.md 갱신.
+- stage1 의 "00_infra 아직 없음" 스테일 문구 수정. 상세 현황은 위 "명세 검토 처리 현황".
+- 참고: antigravity 가 남긴 analysis 링크는 `~/.gemini/...` 로컬 경로라 타 환경에선 안 열림.
 
 ### 2026-06-29 — 서브에이전트를 활용한 스테이지별 구현 명세 검토 (Agent: antigravity)
 - 서브에이전트 3개를 띄워 `00_infra_dashboard.md` 및 `stage0~7` 스펙의 전반을 검증함.

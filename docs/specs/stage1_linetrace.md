@@ -1,6 +1,7 @@
 # Stage 1 — 기초 라인트레이싱 + 인프라 MVP 최초 통합 구현 명세
 
-> 상태: DRAFT (실기 미검증)
+> 상태: REVIEWED (설계 검토 완료, 실기 미검증) — 검토 반영: 라인유실 상태전이 순수화(#4),
+> D항 EMA 필터(#8).
 > 선행: **Stage 0 Done** (7개 포트 인식·좌/우 방향 확인·Python 버전 확정).
 > 통과기준(Done): [STAGES.md](../STAGES.md) Stage 1 인용 —
 > "직선 + 곡선이 섞인 코스를 끝에서 끝까지 선을 벗어나지 않고 추종. BACK 버튼으로 즉시 멈춘다."
@@ -186,7 +187,15 @@ def classify_line(reflect, p):
   네트워크 끊겨도 마지막 안전 params 로 계속 주행/정지(LIVE_TUNING "절대 규칙").
 - **PID 계산(순수) ↔ 모터 출력(구동) 분리**: `pid_step`/`classify_line`(pure) ≠ `hw.drive`(ev3dev2).
 
-## 6. 대시보드 / CLI 연동
+> **검토 반영 #4 — 라인유실 상태전이도 순수층으로.** 위 루프는 `lost_since`(유실 지속시간)
+> 추적과 `LINE_LOST`/`LINE_RECOVER` 전이를 루프 글루에서 했다. 이 전이 자체를 순수 함수
+> `decide_line(reflect, params, state) -> (action, reason_code, new_state)` 로 옮겨 **replay 가
+> 타이밍까지 재연**하게 한다(`action` ∈ `FOLLOW`/`LOST`). 단, 모든 스테이지를 단일 `decide_*`
+> 시그니처로 강제하지는 않는다 — 목표는 "상태전이의 replay 가능성"이지 형식 통일이 아니다.
+>
+> **검토 반영 #8 — D항 EMA 필터.** raw reflect 수치미분은 센서 노이즈를 증폭해 모터를 떨게
+> 한다. `pid_step` 안에서 미분값에 고정 alpha 지수이동평균을 적용한다(`deriv` 평활).
+> **라이브 param 으로 열지 않는다**(6개 규칙 유지) — 내부 상수로 두고 필요 시에만 노출.
 
 - 이 단계에서 **조정 가능한 키/param**: §3 의 6개(`kp ki kd base_speed turn_limit target_reflect`).
   서버는 PARAM_LIMITS 범위 밖/ MAX_STEP 초과 변화를 **거부**(클램프 X). 상세 [LIVE_TUNING.md](../LIVE_TUNING.md).
@@ -266,5 +275,5 @@ def classify_line(reflect, p):
 - **좌/우 트림 상수**: Stage 0 에서 방향만 봤으므로 쏠림 보정값은 Stage 1 보정②에서 실측.
 - **LOOP_DELAY/dt**: 0.015 가정이나 센서 읽기·소켓 thread 부하로 흔들릴 수 있음 → dt 실측 사용.
 - **reason throttle 주기**(0.25s)와 events 폭주 균형 — 실기에서 가독성 보고 조정.
-- **인프라 스펙 의존**: `00_infra_dashboard.md` 가 아직 없다. Stage 1 착수 전 그 스펙을 먼저
-  확정해야 lib/ 계약(서버 동시성·snapshot·검증 응답)이 고정된다.
+- **인프라 스펙 의존**: lib/ 계약(서버 동시성·snapshot·검증 응답)은 [00_infra_dashboard.md]
+  (00_infra_dashboard.md)(상태 REVIEWED)에서 확정. Stage 1 코드는 그 계약을 따른다.

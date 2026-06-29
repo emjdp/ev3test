@@ -298,6 +298,11 @@ def stage5_run(seq, params, hw, telem, events):
 
 ## 11. 미해결 / 실기 확인 필요
 
+> **검토 반영 메모 (antigravity #6) — LEAF 도달 시 U턴 강제.** 아래 "막다른 길 시퀀스 토큰"
+> 미정 항목의 권장 해법: 판단층(`decide_turn_from_sequence`)에서 `arrival_kind == "LEAF"` 면
+> 시퀀스 토큰과 무관하게 강제로 `UTURN` 하고 `LEAF_FORCE_UTURN` 을 남긴다(시퀀스 작성
+> 실수로 벽 충돌·미로 갇힘 방지). 싸고 안전 — Stage 5 구현 시 반영.
+
 - **연결부 param 3개로 충분한지 미검증.** 통합 속도에서 `clear_junction`/`nudge`/
   `pre_turn` 만으로 다음 라인 올라타기가 안정적인지, 회전 후 별도 settle 가 더 필요한지
   실기 확인. 모자라면 6개 한도 안에서 신중히 추가.

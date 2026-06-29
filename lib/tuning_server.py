@@ -339,11 +339,11 @@ def _demo():
         do_handler=do_handler,
         stop_handler=stop_handler,
         actions=[
-            {"name": "follow_once", "label": "추종1회"},
-            {"name": "nudge", "label": "전진"},
-            {"name": "turn_left", "label": "좌90"},
-            {"name": "turn_right", "label": "우90"},
-            {"name": "uturn", "label": "U턴"},
+            {"name": "follow_once", "label": "Follow Once"},
+            {"name": "nudge", "label": "Nudge"},
+            {"name": "turn_left", "label": "Turn Left"},
+            {"name": "turn_right", "label": "Turn Right"},
+            {"name": "uturn", "label": "U-Turn"},
         ],
         stage="demo",
     )

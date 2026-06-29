@@ -95,11 +95,11 @@ def main():
     fail_count = 0
 
     # --- 1) 모터 3개 열기 ---
-    print("--- 모터 ---")
+    print("--- Motors ---")
     motors = [
-        ("outA", "LargeMotor(주행 좌)", LargeMotor),
-        ("outB", "LargeMotor(주행 우)", LargeMotor),
-        ("outC", "MediumMotor(그립)", MediumMotor),
+        ("outA", "LargeMotor(Drive Left)", LargeMotor),
+        ("outB", "LargeMotor(Drive Right)", LargeMotor),
+        ("outC", "MediumMotor(Gripper)", MediumMotor),
     ]
     opened = {}
     for port, label, cls in motors:
@@ -113,11 +113,11 @@ def main():
 
     # --- 2) 센서 4개 열기 + 값 1회 읽기 ---
     # 컬러센서는 반사광(reflected_light_intensity)만 1회 — 모드전환 안 함(Stage 4 일).
-    print("--- 센서 ---")
+    print("--- Sensors ---")
     sensors = [
-        ("in1", "ColorSensor 좌", ColorSensor, lambda s: s.reflected_light_intensity),
-        ("in2", "ColorSensor 중", ColorSensor, lambda s: s.reflected_light_intensity),
-        ("in3", "ColorSensor 우", ColorSensor, lambda s: s.reflected_light_intensity),
+        ("in1", "ColorSensor Left", ColorSensor, lambda s: s.reflected_light_intensity),
+        ("in2", "ColorSensor Center", ColorSensor, lambda s: s.reflected_light_intensity),
+        ("in3", "ColorSensor Right", ColorSensor, lambda s: s.reflected_light_intensity),
         ("in4", "Ultrasonic", UltrasonicSensor, lambda s: s.distance_centimeters),
     ]
     for port, label, cls, read in sensors:
@@ -129,10 +129,10 @@ def main():
             fail_count += 1
 
     # --- 3) 좌/우 모터 방향 확인 (짧게 저속, BACK 으로 중단) ---
-    print("--- 방향 확인 ---")
+    print("--- Direction Check ---")
     if "outA" in opened and "outB" in opened:
-        print("forward nudge: 두 바퀴가 같은 '전진' 방향인지 보세요.")
-        print("(바퀴를 띄워 방향만 확인 권장) ENTER=실행, BACK=건너뛰기")
+        print("forward nudge: Check if both wheels rotate forward.")
+        print("(Recommend lifting wheels) ENTER=Run, BACK=Skip")
         # 모터가 갑자기 돌지 않게 시작 전 확인 대기. BACK 이면 건너뛴다.
         skipped = False
         while True:
@@ -146,14 +146,14 @@ def main():
             nudge_drive(opened["outA"], opened["outB"], SpeedPercent,
                         NUDGE_SPEED, NUDGE_MS, button)
         else:
-            print("방향 확인 건너뜀(BACK).")
+            print("Direction check skipped (BACK).")
     else:
-        print("좌/우 주행 모터(outA/outB) 둘 다 열리지 않아 방향 확인 생략.")
+        print("OutA/OutB not opened, skipping direction check.")
 
     # --- 요약 ---
-    print("--- 요약 ---")
-    print("OK={} FAIL={} (기대: OK=7)".format(ok_count, fail_count))
-    print("DONE. python 버전·7개 포트 결과·좌우 방향을 PROGRESS.md 에 적으세요.")
+    print("--- Summary ---")
+    print("OK={} FAIL={} (expected: OK=7)".format(ok_count, fail_count))
+    print("DONE. Write python version, 7 ports status, and wheel directions to PROGRESS.md")
 
 
 if __name__ == "__main__":

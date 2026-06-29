@@ -42,19 +42,34 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - [ ] **실기에서 Stage 0 실행** (`python3 stages/stage0_check.py`):
       ① `python` 버전 → PROGRESS 기록(3.5 여부 확정) ② 7개 포트 OK + 센서값 sanity
       ③ 좌/우 모터 방향(기대와 다르면 "다름"만 기록, 수정은 Stage 1). → Done 이면 🟢.
-- [ ] **인프라 MVP 빌드 — codex 담당 (다음 작업).** 스테이지가 아닌 공용 도구라 지금 만들 수
+- [x] **인프라 MVP 빌드 — codex 담당.** 스테이지가 아닌 공용 도구라 지금 만들 수
       있다. 명세: [00_infra_dashboard.md](docs/specs/00_infra_dashboard.md) (REVIEWED).
-      - 지금 가능(하드웨어 무관, PC 단위테스트): `lib/` shared_params·telemetry·decision_log·
-        tuning_server·pid + `tools/` robotctl(get/set/stop/do)·최소 dashboard·watcher·replay.
+      - 완료(하드웨어 무관, PC 검증): `lib/` shared_params·telemetry·decision_log·
+        tuning_server·pid + `tools/` robotctl(get/set/stop/do/save/rollback/latest)·
+        최소 dashboard·watcher·replay.
       - `lib/hardware.py` 는 **Stage 0 실기 Done 후** (모터 극성·트림 결과 필요).
       - ⚠️ **MVP 한정**: 무거운 대시보드(그래프/자동튜닝)는 금지(LIVE_TUNING.md). py_compile + PC 테스트.
 - [ ] (이후) **Stage 1~7 은 한 번에 하나씩**, 각 이전 단계 **실기 Done 후**에만 착수.
       ⚠️ 1~7 일괄 작성 금지(AGENTS.md 1절). 담당은 **codex·claude 협업/교대**(둘이 번갈아 또는 공동).
-- [ ] (Stage 1 착수 시) 라이브 튜닝 infra MVP 구현 — `00_infra_dashboard.md`(REVIEWED) 계약대로:
-      `lib/` shared_params·telemetry·decision_log·tuning_server·pid + `tools/` robotctl·dashboard·watcher.
+- [ ] (Stage 1 착수 시) 인프라 MVP를 Stage 1 제어 루프에 통합해 실기 검증:
+      watcher 단일 polling, dashboard 로컬 파일 렌더, `robotctl set/do/stop`, save/rollback 확인.
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — 인프라 MVP 구현 + PC 통합 검증 (Agent: codex)
+- `lib/` 코어 구현: `SharedParams`(범위/스텝 거부, rev, save/rollback), `Telemetry`,
+  `DecisionLog`, dt 측정값 기반 `Pid`(D항 EMA), threaded newline-JSON `TuningServer`
+  (`get/set/stop/do/save/rollback/get_latest`, 깨진 JSON 라인 복구, 데모 서버).
+- `tools/` 구현: 비대화형 `robotctl.py`, watcher(`runs/<ts>/` 기록 +
+  `runs/current/latest_state.json`), curses MVP `dashboard.py`(브릭 직접 polling 없이 로컬 상태 파일
+  렌더, 키 입력 시에만 명령 전송), `replay.py` 스켈레톤(stub/plug-in decide).
+- PC 검증: `python3 -m py_compile lib/*.py tools/*.py stages/*.py`, lib self-test,
+  데모 서버로 `robotctl get/set/do/stop/latest`, watcher 기록/param diff, dashboard `--once`
+  렌더 및 키→명령 경로, replay stub 실행 통과. `lib/` f-string 없음 확인.
+- 범위 준수: `stages/`, `lib/hardware.py`, `docs/specs/*` 수정 없음. **실기 검증 필요**:
+  인프라 자체 Done 은 없고, Stage 1 라인트레이싱 통합 때 SSH 터널/브릭 부하/stop/save/rollback 을 확인한다.
+- 다음: Stage 0 실기 검증 → Stage 1 착수 시 인프라 통합.
 
 ### 2026-06-30 — 소유권/순서 정리: 인프라는 codex, 스테이지는 일괄 금지 (Agent: claude)
 - 확인: Stage 1~7 코드를 미리 일괄 작성하는 것은 금지(AGENTS.md 1절). codex 가 "나머지"를

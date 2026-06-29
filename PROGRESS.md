@@ -59,6 +59,14 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-06-30 — Stage0 출력 ASCII 잔여 문자열 마무리 (Agent: codex)
+- antigravity 의 한글 출력 제거 후 남아 있던 `stage0_check.py` 의 position fallback 출력
+  1줄을 ASCII(`position unavailable, opened OK`)로 교체했다.
+- 확인: `describe.actions[*].label` 은 표시 전용이고 실행 의존성은 `name` 에 걸려 있어,
+  데모 라벨 영어화는 `do turn_left`/`turn_right`/`uturn` 경로를 깨지 않는다.
+- PC 검증: `python3 -m py_compile lib/*.py tools/*.py stages/*.py`, Stage0 출력 후보 문자열
+  ASCII 확인. **실기 검증 필요**: 브릭에서 Stage 0 실행.
+
 ### 2026-06-30 — 브릭 실행 코드 내 UnicodeEncodeError 방지를 위한 한글 제거 (Agent: antigravity)
 - 수정 내용: `stages/stage0_check.py` 내의 모터/센서 레이블 및 `print()` 한글 출력 문자열을 모두 영어(ASCII)로 전환. `lib/tuning_server.py` 내의 `_demo()` 데모 코드 한글 레이블을 영어로 전환.
 - 배경: ev3dev OS의 기본 로케일(Locale)이 UTF-8이 아닌 환경(ASCII 등)에서 실행 시 `print` 속 한글로 인해 `UnicodeEncodeError` 크래시가 발생하는 것을 방지.

@@ -49,7 +49,7 @@ def probe_motor(cls, port, label):
     try:
         detail = "{} {} OK (pos={})".format(port, label, m.position)
     except Exception:
-        detail = "{} {} OK (position 읽기 불가, 열림 OK)".format(port, label)
+        detail = "{} {} OK (position unavailable, opened OK)".format(port, label)
     return m, detail
 
 

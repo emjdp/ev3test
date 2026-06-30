@@ -201,10 +201,11 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
     mode = "auto={}".format("ON" if model.auto_rerun else "OFF")
     step_mode = "step={}".format("coarse" if model.coarse_step else "fine")
     last = model.last_action or "-"
+    paused = "paused={}".format("YES" if _as_bool(frame.get("paused")) else "no")
     lines.append(
         _fit(
             f"{running:<8} t={_format_seconds(t_ms)}  dt={_format_ms(dt_ms)}  "
-            f"rev={rev}  state_age={age}  {mode}  {step_mode}  last={last}  [s STOP]",
+            f"rev={rev}  state_age={age}  {paused}  {mode}  {step_mode}  last={last}  [Space pause] [s STOP]",
             width,
         )
     )
@@ -231,7 +232,7 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
 
     lines.append(sep)
     lines.append(_fit(_format_actions(model.actions), width))
-    lines.append(_fit("keys: [a] auto-rerun  [c] coarse/fine  [Space/.] repeat  [g] refresh  [S] save  [R] rollback  [q] quit", width))
+    lines.append(_fit("keys: [Space] pause/resume  [.] repeat  [a] auto-rerun  [c] coarse/fine  [g] refresh  [S] save  [R] rollback  [q] quit", width))
     if model.pending_confirm:
         lines.append(_fit(f"confirm {model.pending_confirm}: press y to run, n/Esc to cancel", width))
     elif model.status:
@@ -285,7 +286,15 @@ def handle_key(
         session.status = _adjust_selected(model, 1, host, port, timeout)
     elif key == ord("s"):
         session.status = _send_and_describe({"cmd": "stop", "source": "dashboard"}, host, port, timeout)
-    elif key in (ord(" "), ord(".")):
+    elif key == ord(" "):
+        paused = _as_bool(model.frame.get("paused"))
+        session.status = _send_and_describe(
+            {"cmd": "pause", "paused": not paused, "source": "dashboard"},
+            host,
+            port,
+            timeout,
+        )
+    elif key == ord("."):
         session.status = _repeat_last_action(session, host, port, timeout)
     elif key in (ord("a"), ord("A")):
         session.auto_rerun = not session.auto_rerun
@@ -539,6 +548,8 @@ def _compact_response(response: dict[str, Any]) -> str:
         return f"ok value={_format_value(response.get('value'))} rev={response.get('rev', '-')}"
     if "queued" in response:
         return f"ok queued={response.get('queued')}"
+    if "paused" in response:
+        return "ok {}".format("paused" if response.get("paused") else "resumed")
     if "saved" in response:
         # 저장은 브릭(튜닝 서버)에서 일어난다. 경로도 브릭 파일시스템 기준이므로
         # 노트북에서 찾지 않게 'robot:' 를 붙여 어느 쪽 경로인지 분명히 한다.
@@ -683,6 +694,16 @@ def _normalize_number(number: float, old_value: Any) -> int | float:
     if isinstance(old_value, int) and not isinstance(old_value, bool):
         return int(round(number))
     return round(number, 6)
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "paused"}
+    return False
 
 
 def _fit(text: str, width: int) -> str:

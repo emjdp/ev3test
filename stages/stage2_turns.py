@@ -126,7 +126,7 @@ def _publish(tele, params, started, **extra):
 # 회전 1회 (판단 → 구동 → 로깅). 구동층은 hw 를 통해서만 접근.
 # =====================================================================
 
-def run_turn(hw, cmd, params, log, tele, should_stop, started):
+def run_turn(hw, cmd, params, log, tele, should_stop, should_pause, started):
     """do 로 들어온 한 회전 명령을 판단→구동→기록한다.
 
     cmd: 'turn_left' | 'turn_right' | 'uturn'.
@@ -145,9 +145,10 @@ def run_turn(hw, cmd, params, log, tele, should_stop, started):
 
     # 회전 시작 telemetry
     _publish(tele, params, started, turning=True, target_deg=target,
-             enc_l=0, enc_r=0, enc_avg=0.0)
+             enc_l=0, enc_r=0, enc_avg=0.0, paused=bool(should_pause()))
 
-    actual = pivot(hw, action, target, turn_speed, should_stop=should_stop)
+    actual = pivot(hw, action, target, turn_speed, should_stop=should_stop,
+                   should_pause=should_pause)
 
     settle_ms = snap["post_turn_settle_ms"]
     if settle_ms:
@@ -168,7 +169,7 @@ def run_turn(hw, cmd, params, log, tele, should_stop, started):
 
     # 회전 종료 telemetry
     _publish(tele, params, started, turning=False, target_deg=target,
-             enc_l=enc_l, enc_r=enc_r, enc_avg=actual)
+             enc_l=enc_l, enc_r=enc_r, enc_avg=actual, paused=bool(should_pause()))
 
     hw.beep_ok()   # 사람이 "끝났다" 인지(보정 루프 리듬)
     return actual
@@ -190,6 +191,7 @@ def run():
     hw = Ev3Hardware()
 
     stop_flag = {"on": False, "source": None}
+    pause_state = {"paused": False, "source": None}
     pending = {"cmd": None}
     plock = threading.Lock()
 
@@ -197,6 +199,13 @@ def run():
         # 네트워크 thread 에서 호출 — 플래그만 세팅(제어 루프/회전 폴링이 안전한 시점에 처리).
         stop_flag["on"] = True
         stop_flag["source"] = source
+
+    def on_pause(paused, source):
+        pause_state["paused"] = bool(paused)
+        pause_state["source"] = source
+        log.log("PAUSE" if paused else "RESUME", "SPEED_ZERO_HOLD",
+                source=source)
+        return {"mode": "paused" if paused else "running"}
 
     def on_do(action, args):
         # 네트워크 thread 에서 호출 — 회전을 여기서 돌리지 않고 대기 루프에 넘긴다(비차단).
@@ -207,8 +216,11 @@ def run():
     def should_stop():
         return stop_flag["on"]
 
+    def should_pause():
+        return pause_state["paused"]
+
     server = TuningServer(params, tele, do_handler=on_do, stop_handler=on_stop,
-                          actions=ACTIONS, stage=STAGE_NAME)
+                          pause_handler=on_pause, actions=ACTIONS, stage=STAGE_NAME)
     server.start()
 
     started = time.monotonic()
@@ -222,17 +234,26 @@ def run():
                 log.log("EMERGENCY_STOP", "NETWORK", source=stop_flag["source"])
                 break
 
+            if pause_state["paused"]:
+                hw.drive_raw(0, 0)
+                enc_l, enc_r = hw.read_encoders()
+                _publish(tele, params, started, turning=False, paused=True,
+                         enc_l=enc_l, enc_r=enc_r,
+                         enc_avg=(abs(enc_l) + abs(enc_r)) / 2.0)
+                time.sleep(LOOP_DELAY)
+                continue
+
             # (2) 대기 중인 do 회전 명령 꺼내기(비차단)
             with plock:
                 cmd = pending["cmd"]
                 pending["cmd"] = None
 
             if cmd is not None:
-                run_turn(hw, cmd, params, log, tele, should_stop, started)
+                run_turn(hw, cmd, params, log, tele, should_stop, should_pause, started)
             else:
                 # (3) idle telemetry — 현재 엔코더/회전중 아님
                 enc_l, enc_r = hw.read_encoders()
-                _publish(tele, params, started, turning=False,
+                _publish(tele, params, started, turning=False, paused=False,
                          enc_l=enc_l, enc_r=enc_r,
                          enc_avg=(abs(enc_l) + abs(enc_r)) / 2.0)
 

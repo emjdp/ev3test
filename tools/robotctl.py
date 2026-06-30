@@ -106,6 +106,10 @@ def build_request(args: argparse.Namespace) -> dict[str, Any]:
         return {"cmd": "set", "name": args.name, "value": parse_json_value(args.value)}
     if args.command == "stop":
         return {"cmd": "stop", "source": "network"}
+    if args.command == "pause":
+        return {"cmd": "pause", "paused": True, "source": "network"}
+    if args.command == "resume":
+        return {"cmd": "pause", "paused": False, "source": "network"}
     if args.command == "do":
         return {
             "cmd": "do",
@@ -161,6 +165,11 @@ def print_response(command: str, request: dict[str, Any], response: dict[str, An
 
     if command == "stop":
         print("OK: stop requested")
+        return
+
+    if command in ("pause", "resume"):
+        paused = bool(response.get("paused"))
+        print("OK: {}".format("paused" if paused else "resumed"))
         return
 
     if command == "do":
@@ -236,6 +245,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_set.add_argument("value")
 
     subparsers.add_parser("stop", parents=[common], help="network stop 요청")
+    subparsers.add_parser("pause", parents=[common], help="속도 0 일시정지 요청")
+    subparsers.add_parser("resume", parents=[common], help="일시정지 해제 요청")
 
     p_do = subparsers.add_parser("do", parents=[common], help="단일 동작 트리거")
     p_do.add_argument("action")

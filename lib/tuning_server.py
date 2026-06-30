@@ -16,13 +16,15 @@ except ImportError:
 
 class TuningServer(object):
     def __init__(self, params, telemetry, host="127.0.0.1", port=8765,
-                 do_handler=None, stop_handler=None, actions=None, stage=""):
+                 do_handler=None, stop_handler=None, pause_handler=None,
+                 actions=None, stage=""):
         self.params = params
         self.telemetry = telemetry
         self.host = host
         self.port = port
         self.do_handler = do_handler
         self.stop_handler = stop_handler
+        self.pause_handler = pause_handler
         self.actions = self._normalize_actions(actions or [])
         self.stage = stage or ""
         self._sock = None
@@ -109,6 +111,8 @@ class TuningServer(object):
             return self._cmd_set(req)
         if cmd == "stop":
             return self._cmd_stop(req)
+        if cmd == "pause":
+            return self._cmd_pause(req)
         if cmd == "do":
             return self._cmd_do(req)
         if cmd == "save":
@@ -140,6 +144,25 @@ class TuningServer(object):
         if self.stop_handler is not None:
             self.stop_handler(source)
         return {"ok": True, "stopped": True, "source": source}
+
+    def _cmd_pause(self, req):
+        source = req.get("source", "network")
+        paused_raw = req.get("paused", req.get("value", True))
+        try:
+            paused = self._coerce_bool(paused_raw)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        if self.pause_handler is None:
+            return {"ok": False, "error": "pause handler is not configured"}
+        result = self.pause_handler(paused, source)
+        if result is None:
+            result = {}
+        if not isinstance(result, dict):
+            result = {"result": result}
+        resp = {"ok": True, "paused": paused, "source": source}
+        for key in result:
+            resp[key] = result[key]
+        return resp
 
     def _cmd_do(self, req):
         action = req.get("action")
@@ -186,6 +209,7 @@ class TuningServer(object):
             "stage": self.stage,
             "params": params,
             "actions": list(self.actions),
+            "supports_pause": self.pause_handler is not None,
         }
 
     def _normalize_actions(self, actions):
@@ -202,6 +226,19 @@ class TuningServer(object):
 
     def _action_names(self):
         return set([item["name"] for item in self.actions])
+
+    def _coerce_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in ("1", "true", "yes", "on", "pause", "paused"):
+                return True
+            if text in ("0", "false", "no", "off", "resume", "resumed"):
+                return False
+        raise ValueError("paused must be a boolean")
 
 
 def _request(host, port, item):
@@ -231,7 +268,7 @@ def _self_test():
     )
     tele = Telemetry()
     tele.publish({"reflect": 34})
-    seen = {"stop": None, "do": None}
+    seen = {"stop": None, "pause": None, "do": None}
 
     def do_handler(action, args):
         seen["do"] = (action, args)
@@ -240,12 +277,16 @@ def _self_test():
     def stop_handler(source):
         seen["stop"] = source
 
+    def pause_handler(paused, source):
+        seen["pause"] = (paused, source)
+
     server = TuningServer(
         params,
         tele,
         port=0,
         do_handler=do_handler,
         stop_handler=stop_handler,
+        pause_handler=pause_handler,
         actions=[{"name": "nudge", "label": "nudge"}],
         stage="test",
     )
@@ -259,10 +300,15 @@ def _self_test():
     assert desc["params"][0]["name"] == "kp"
     assert desc["params"][0]["step"] == 0.05
     assert desc["actions"][0]["name"] == "nudge"
+    assert desc["supports_pause"] is True
     assert _request(host, port, {"cmd": "set", "name": "kp", "value": 0.7})["ok"] is True
     assert _request(host, port, {"cmd": "get_latest"})["latest"]["reflect"] == 34
     assert _request(host, port, {"cmd": "do", "action": "nudge", "args": {"ms": 120}})["queued"] == "nudge"
     assert seen["do"] == ("nudge", {"ms": 120})
+    assert _request(host, port, {"cmd": "pause", "paused": True, "source": "test"})["paused"] is True
+    assert seen["pause"] == (True, "test")
+    assert _request(host, port, {"cmd": "pause", "paused": False, "source": "test"})["paused"] is False
+    assert seen["pause"] == (False, "test")
     assert _request(host, port, {"cmd": "stop", "source": "test"})["ok"] is True
     assert seen["stop"] == "test"
 

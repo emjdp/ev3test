@@ -198,15 +198,24 @@ def run():
     hw = Ev3Hardware()
 
     stop_flag = {"on": False, "source": None}
+    pause_state = {"paused": False, "source": None}
 
     def on_stop(source):
         # 네트워크 thread 에서 호출 — 플래그만 세팅(제어 루프가 안전한 시점에 처리).
         stop_flag["on"] = True
         stop_flag["source"] = source
 
+    def on_pause(paused, source):
+        # stop 과 달리 프로그램은 계속 살려 두고, 제어 루프가 속도 0 을 유지한다.
+        pause_state["paused"] = bool(paused)
+        pause_state["source"] = source
+        log.log("PAUSE" if paused else "RESUME", "SPEED_ZERO_HOLD",
+                source=source)
+        return {"mode": "paused" if paused else "running"}
+
     # Stage 1 은 단발 do 액션이 없다(stop 만 필수). actions=[] → describe 가 빈 액션.
     server = TuningServer(params, tele, do_handler=None, stop_handler=on_stop,
-                          actions=[], stage=STAGE_NAME)
+                          pause_handler=on_pause, actions=[], stage=STAGE_NAME)
     server.start()
 
     state = make_state()
@@ -232,6 +241,24 @@ def run():
             # (3) 센서 읽기
             reflect = hw.read_center_reflect()
 
+            if pause_state["paused"]:
+                # 일시정지는 brake/off 가 아니라 속도 0 명령으로 유지해 resume 이 자연스럽게 이어진다.
+                hw.drive(0, 0)
+                tele.publish({
+                    "t_ms": t_ms,
+                    "dt_ms": int(dt * 1000),
+                    "param_rev": params.rev(),
+                    "running": True,
+                    "paused": True,
+                    "reflect": reflect,
+                    "error": 0,
+                    "turn": 0,
+                    "left_speed": 0,
+                    "right_speed": 0,
+                })
+                time.sleep(LOOP_DELAY)
+                continue
+
             # (4) params snapshot (네트워크 비차단: 복사본만)
             p = params.snapshot()
 
@@ -254,6 +281,7 @@ def run():
                 "dt_ms": int(dt * 1000),
                 "param_rev": params.rev(),
                 "running": True,
+                "paused": False,
                 "reflect": reflect,
                 "error": action["error"],
                 "turn": action["turn"],

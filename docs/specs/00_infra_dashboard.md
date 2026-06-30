@@ -401,12 +401,13 @@ python tools/robotctl.py describe        # stage/params/actions 메타 확인
 키맵 (명세 — actions 키는 `describe` 의 actions 로 **자동 배정**, 하드코딩 X):
 | 키 | 동작 | 비고 |
 |---|---|---|
-| `s` | **STOP** (`stop`) | 네트워크 정지 |
+| `Space` | **pause/resume** (`pause`) | 속도 0 일시정지. 프로그램/서버는 계속 살아 있음 |
+| `s` | **STOP** (`stop`) | 네트워크 비상정지/종료 성격. 재개하려면 스테이지 재실행 |
 | `↑` / `↓` 또는 `Tab` | params 행 선택 | describe 순서대로 |
 | `←` / `-` | 선택 param **감소**(`set name value-step`) | UI `step` 만큼(coarse 면 ×5) |
 | `→` / `+` | 선택 param **증가**(`set name value+step`) | 거부(범위/max_step)되면 에러 한 줄 표시 |
 | `1`,`2`,`3`… | `do <action>` | **describe.actions 순서대로 자동 배정**(예 `1`=좌90 `2`=우90 `3`=U턴) |
-| `Space` 또는 `.` | **마지막 do 액션 반복** | 회전 보정 루프용 |
+| `.` | **마지막 do 액션 반복** | 회전 보정 루프용 |
 | `a` | **"조정 후 자동 재실행" 토글** | ON 이면 `+/-` 직후 마지막 액션 자동 재실행 |
 | `c` | **coarse/fine step 토글** | fine=`step`, coarse=`step`×5 (단 max_step 넘으면 서버가 거부) |
 | `S`(대문자) | `save` (확인 프롬프트) | config/<stage>.json |
@@ -414,10 +415,10 @@ python tools/robotctl.py describe        # stage/params/actions 메타 확인
 | `g` | `describe`+`get` 전체 새로고침 | 스테이지 바뀌었을 때 |
 | `q` | 대시보드 종료(로봇은 계속 주행) | 로봇 stop 아님 |
 
-> 회전 튜닝 루프(Stage 2): `1`(좌90) → 각도 보고 → `+`/`-` 로 turn_90_factor 한 칸 → `.`(또는
-> `Space`, `a` 토글 ON 시 자동) 로 다시 좌90. **터미널 타이핑 없이 키만으로** 반복한다.
-> 대시보드 종료(`q`)는 **로봇을 멈추지 않는다**. 멈춤은 `s`(network stop) 로 한다.
-> 반복 키와 정지 키를 분리해, 회전 보정 중에는 `Space` 를 "마지막 동작 반복"으로 쓴다.
+> 회전 튜닝 루프(Stage 2): `1`(좌90) → 각도 보고 → `+`/`-` 로 turn_90_factor 한 칸 → `.`
+> (또는 `a` 토글 ON 시 자동) 로 다시 좌90. **터미널 타이핑 없이 키만으로** 반복한다.
+> 대시보드 종료(`q`)는 **로봇을 멈추지 않는다**. 잠깐 멈춤은 `Space`(pause/resume),
+> 완전 정지는 `s`(network stop) 로 한다.
 
 ---
 

@@ -35,6 +35,7 @@
 | `COLOR_READ` | 노드 색 읽음 | color, reflect(바닥/노드 구분), dist_since_node_mm |
 | `NODE_IS_GOAL` / `_CHECKPOINT` / `_START` | 색으로 노드 종류 확정 | color |
 | `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구 | lost_ms |
+| `PAUSE` / `RESUME` | 대시보드/robotctl 일시정지 토글 | source |
 | `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | source |
 
 > 새 판단을 추가할 때마다 이 표에 reason_code 를 1줄 추가한다. 카탈로그가 곧 "로봇이 할 수

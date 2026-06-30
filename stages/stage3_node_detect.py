@@ -153,10 +153,11 @@ def deg_to_mm(deg):
     return deg * MM_PER_DEG
 
 
-def advance(hw, distance_mm, should_stop):
+def advance(hw, distance_mm, should_stop, should_pause=None):
     """노드 확정 후(또는 nudge) 직진으로 distance_mm 만큼 전진. 거리는 엔코더 기준.
 
     distance_mm <= 0 이면 제자리. 느린 고정 속도(ADVANCE_SPEED). stop 에 즉시 반응.
+    pause 중에는 속도 0 으로 기다렸다가 같은 거리 목표를 이어간다.
     반환: 실제 전진 거리(mm, 검증/telemetry).
     """
     if distance_mm <= 0:
@@ -167,6 +168,15 @@ def advance(hw, distance_mm, should_stop):
         while deg_to_mm(hw.enc_avg() - start) < distance_mm:
             if should_stop is not None and should_stop():
                 break
+            if should_pause is not None and should_pause():
+                hw.drive(0, 0)
+                while should_pause():
+                    if should_stop is not None and should_stop():
+                        break
+                    time.sleep(0.01)
+                if should_stop is not None and should_stop():
+                    break
+                hw.drive(ADVANCE_SPEED, ADVANCE_SPEED)
             time.sleep(0.005)
     finally:
         hw.stop()
@@ -178,7 +188,7 @@ def advance(hw, distance_mm, should_stop):
 # =====================================================================
 
 def _publish(tele, params, started, dt_ms, raw, bits, dist_mm, enc_avg, count,
-             node_candidate, node_confirmed, mode, action):
+             node_candidate, node_confirmed, mode, action, paused=False):
     now = time.monotonic()
     l, c, r = raw
     frame = {
@@ -186,6 +196,7 @@ def _publish(tele, params, started, dt_ms, raw, bits, dist_mm, enc_avg, count,
         "dt_ms": dt_ms,
         "param_rev": params.rev(),
         "running": True,
+        "paused": bool(paused),
         "mode": mode,
         # 노드 감지(좌/중/우)
         "reflect": [l, c, r],
@@ -228,6 +239,7 @@ def run():
     node_state = {"node_dist0_deg": 0.0}  # 직전 노드(또는 follow 시작) 이후 거리 기준점
 
     stop_flag = {"on": False, "source": None}
+    pause_state = {"paused": False, "source": None}
     pending = {"follow": False, "nudge": None}
     plock = threading.Lock()
     mode = {"value": "IDLE"}
@@ -235,6 +247,13 @@ def run():
     def on_stop(source):
         stop_flag["on"] = True
         stop_flag["source"] = source
+
+    def on_pause(paused, source):
+        pause_state["paused"] = bool(paused)
+        pause_state["source"] = source
+        log.log("PAUSE" if paused else "RESUME", "SPEED_ZERO_HOLD",
+                source=source)
+        return {"mode": "paused" if paused else mode["value"].lower()}
 
     def on_do(action, args):
         with plock:
@@ -248,8 +267,11 @@ def run():
     def should_stop():
         return stop_flag["on"]
 
+    def should_pause():
+        return pause_state["paused"]
+
     server = TuningServer(params, tele, do_handler=on_do, stop_handler=on_stop,
-                          actions=ACTIONS, stage=STAGE_NAME)
+                          pause_handler=on_pause, actions=ACTIONS, stage=STAGE_NAME)
     server.start()
 
     hw.reset_encoders()
@@ -267,6 +289,23 @@ def run():
                 log.log("EMERGENCY_STOP", "NETWORK", source=stop_flag["source"])
                 break
 
+            if pause_state["paused"]:
+                hw.drive(0, 0)
+                now = time.monotonic()
+                dt = now - last
+                last = now
+                raw = hw.read_reflect()
+                p = params.snapshot()
+                thr = (p["left_threshold"], p["center_threshold"], p["right_threshold"])
+                bits = bits_from_raw(raw, thr)
+                enc_avg = hw.enc_avg()
+                dist_mm = deg_to_mm(enc_avg - node_state["node_dist0_deg"])
+                _publish(tele, params, started, int(dt * 1000), raw, bits, dist_mm,
+                         enc_avg, deb.count, False, False, mode["value"], idle_action,
+                         paused=True)
+                time.sleep(LOOP_DELAY)
+                continue
+
             # (2) 대기 중인 do 명령(비차단)
             with plock:
                 start_follow = pending["follow"]
@@ -283,7 +322,7 @@ def run():
 
             if nudge_mm is not None:
                 # 노드 확정 위치 미세 확인용 전진(구동만). reason 로그 없이 telemetry 로 거리 본다.
-                advance(hw, nudge_mm, should_stop)
+                advance(hw, nudge_mm, should_stop, should_pause)
 
             # (3) dt 실측 + 센서/거리
             now = time.monotonic()
@@ -323,7 +362,7 @@ def run():
                             duration_ms=info["duration_ms"],
                             debounce_ms=p["node_debounce_ms"], dist_mm=dist_mm)
                     # 확정 후 전진량(실패#1 손잡이). 0 이면 제자리.
-                    advance(hw, p["node_advance"], should_stop)
+                    advance(hw, p["node_advance"], should_stop, should_pause)
                     hw.beep_ok()
                     node_state["node_dist0_deg"] = hw.enc_avg()
                     mode["value"] = "FOLLOW" if CONTINUE_AFTER_NODE else "IDLE"
@@ -345,7 +384,7 @@ def run():
             # (4) telemetry
             _publish(tele, params, started, int(dt * 1000), raw, bits, dist_mm,
                      enc_avg, deb.count, node_candidate, node_confirmed,
-                     mode["value"], action)
+                     mode["value"], action, paused=False)
 
             time.sleep(LOOP_DELAY)
     except KeyboardInterrupt:

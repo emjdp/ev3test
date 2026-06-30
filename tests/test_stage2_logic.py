@@ -41,6 +41,7 @@ class FakeHw(object):
         self.r = 0.0
         self.step = step
         self.drive = None
+        self.drive_history = []
         self.stopped = False
         self.reset_calls = 0
 
@@ -51,11 +52,18 @@ class FakeHw(object):
 
     def drive_raw(self, left_speed, right_speed):
         self.drive = (left_speed, right_speed)
+        self.drive_history.append(self.drive)
 
     def read_encoders(self):
         if self.drive is not None:
-            self.l += self.step if self.drive[0] > 0 else -self.step
-            self.r += self.step if self.drive[1] > 0 else -self.step
+            if self.drive[0] > 0:
+                self.l += self.step
+            elif self.drive[0] < 0:
+                self.l -= self.step
+            if self.drive[1] > 0:
+                self.r += self.step
+            elif self.drive[1] < 0:
+                self.r -= self.step
         return self.l, self.r
 
     def stop(self):
@@ -127,6 +135,21 @@ def test_pivot_stop_and_zero_target():
     print("pivot stop/zero-target ok")
 
 
+def test_pivot_pause_keeps_target():
+    hw = FakeHw()
+    checks = {"count": 0}
+
+    def should_pause():
+        checks["count"] += 1
+        return checks["count"] <= 2
+
+    actual = pivot(hw, "LEFT90", 100.0, 18,
+                   should_stop=lambda: False, should_pause=should_pause)
+    assert actual >= 100.0 and hw.stopped is True
+    assert (0, 0) in hw.drive_history
+    print("pivot pause keeps target ok")
+
+
 def test_param_safety_metadata():
     # 라이브 params 4개, 6 이하. LIMITS/MAX_STEP 가 모든 param 을 덮는다.
     assert len(INITIAL_PARAMS) == 4
@@ -141,6 +164,7 @@ def main():
     test_decide_turn_unknown_command()
     test_pivot_reaches_target_and_direction()
     test_pivot_stop_and_zero_target()
+    test_pivot_pause_keeps_target()
     test_param_safety_metadata()
     print("ALL stage2 logic tests passed")
 

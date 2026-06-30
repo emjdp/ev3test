@@ -157,6 +157,24 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-06-30 — 대시보드 Space 일시정지/재개 semantics 정리 (Agent: codex)
+- **검토 결과**: 기존 대시보드에서 `s` 는 `stop`(스테이지 루프 종료)이고, `Space`/`.` 는 마지막
+  `do` 반복이었다. 사용자가 기대한 "잠깐 멈췄다가 다시 동작"과 달리 `stop` 은 EMERGENCY_STOP
+  성격이라 재개가 안 되고, `Space` 는 follow/turn 반복이라 정지 키처럼 쓰기 애매했다.
+- **수정**: `lib/tuning_server.py` 에 `pause` 명령 추가. `tools/dashboard.py` 는 `Space` 를
+  pause/resume 토글로, `.` 를 마지막 `do` 반복으로 분리. `tools/robotctl.py` 에도
+  `pause`/`resume` 추가.
+- **구동 semantics**: `stop` 은 기존처럼 강한 종료 경로로 유지. `pause` 는 `hw.drive(0,0)` 또는
+  `hw.drive_raw(0,0)` 으로 속도 0 을 유지하고 서버/제어 루프는 계속 산다. Stage 2 회전과 Stage 3
+  `advance` 중 pause 는 엔코더 목표/거리 목표를 버리지 않고 resume 후 이어간다.
+- **기록**: `PAUSE`/`RESUME` reason_code 를 DECISIONS.md 카탈로그에 추가. telemetry 에 `paused`
+  필드를 실어 대시보드가 현재 상태를 표시하고 다음 Space 동작을 결정한다.
+- **범위 주의**: Stage 1/2 는 실기 Done 이지만 튜닝값/판단값은 수정하지 않았고, 공용 안전/대시보드
+  semantics 만 추가했다. 그래도 브릭에서 Stage 1/2/3 각각 `Space` pause/resume 실기 확인 필요.
+- **PC 검증(통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py`,
+  `python3 lib/tuning_server.py`, `tests/test_stage1_logic.py`, `tests/test_stage2_logic.py`,
+  `tests/test_stage3_logic.py`.
+
 ### 2026-06-30 — Git 정책 변경: 원격 없음 → GitHub origin 팀 공유 (Agent: claude)
 - **원인 분석**: `git status` 의 "ahead of origin/master by 10 commits" 는 손상이 아니라,
   AGENTS.md §3("원격 없음")과 달리 GitHub origin 이 연결돼 있고 `origin/master` 추적 ref 가

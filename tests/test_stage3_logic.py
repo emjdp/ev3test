@@ -254,16 +254,18 @@ class FakeHw(object):
         self.r = 0.0
         self.step = step
         self.drive_cmd = None
+        self.drive_history = []
         self.stopped = False
 
     def drive(self, left, right):
         self.drive_cmd = (left, right)
+        self.drive_history.append(self.drive_cmd)
 
     def stop(self):
         self.stopped = True
 
     def read_encoders(self):
-        if self.drive_cmd is not None:
+        if self.drive_cmd is not None and self.drive_cmd != (0, 0):
             self.l += self.step
             self.r += self.step
         return self.l, self.r
@@ -294,6 +296,20 @@ def test_advance_stop_breaks_early():
     # stop 이 걸리면 거의 못 가고 정지
     assert hw.stopped is True and moved < 1000.0
     print("advance stop breaks early ok")
+
+
+def test_advance_pause_keeps_target():
+    hw = FakeHw()
+    checks = {"count": 0}
+
+    def should_pause():
+        checks["count"] += 1
+        return checks["count"] <= 2
+
+    moved = advance(hw, 20.0, should_stop=lambda: False, should_pause=should_pause)
+    assert moved >= 20.0 and hw.stopped is True
+    assert (0, 0) in hw.drive_history
+    print("advance pause keeps target ok")
 
 
 def test_node_confirm_stops_motor():
@@ -372,6 +388,7 @@ def main():
     test_advance_reaches_and_stops()
     test_advance_zero_is_inplace()
     test_advance_stop_breaks_early()
+    test_advance_pause_keeps_target()
     test_node_confirm_stops_motor()
     test_dashboard_summary_stage3_keys()
     test_dashboard_summary_stage1_not_broken()

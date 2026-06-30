@@ -32,7 +32,7 @@ def _avg_abs(el, er):
     return (abs(el) + abs(er)) / 2.0
 
 
-def pivot(hw, action, target_deg, turn_speed, should_stop=None):
+def pivot(hw, action, target_deg, turn_speed, should_stop=None, should_pause=None):
     """엔코더 각도 기준 제자리 회전 1회.
 
     hw          : 구동층(reset_encoders/read_encoders/drive_raw/stop 제공)
@@ -40,6 +40,7 @@ def pivot(hw, action, target_deg, turn_speed, should_stop=None):
     target_deg  : 멈출 평균 바퀴각(도, 양수). 보정 적용된 값.
     turn_speed  : 회전 속도(%). 좌우에 부호만 달리해 적용.
     should_stop : 콜백() -> bool. True 면 즉시 정지(네트워크 stop/watchdog).
+    should_pause: 콜백() -> bool. True 면 속도 0 으로 기다렸다가 같은 목표를 이어간다.
 
     반환: 실제로 돈 평균 엔코더 각도(검증/telemetry). 0 이하 target 은 회전 없이 0.0.
     """
@@ -59,11 +60,22 @@ def pivot(hw, action, target_deg, turn_speed, should_stop=None):
         hw.stop()
         return 0.0
 
-    hw.drive_raw(left_dir * turn_speed, right_dir * turn_speed)
+    left_speed = left_dir * turn_speed
+    right_speed = right_dir * turn_speed
+    hw.drive_raw(left_speed, right_speed)
     try:
         while True:
             if should_stop is not None and should_stop():
                 break
+            if should_pause is not None and should_pause():
+                hw.drive_raw(0, 0)
+                while should_pause():
+                    if should_stop is not None and should_stop():
+                        break
+                    time.sleep(0.01)
+                if should_stop is not None and should_stop():
+                    break
+                hw.drive_raw(left_speed, right_speed)
             el, er = hw.read_encoders()
             if _avg_abs(el, er) >= target_deg:
                 break

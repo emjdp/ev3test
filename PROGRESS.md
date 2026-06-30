@@ -157,6 +157,33 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-01 — Stage 6 복귀 경로 압축(삽질 제거)으로 명세 변경 (Agent: claude)
+- **배경**: 사용자가 "복귀(RETURN) 때 갈 때 들어갔던 막다른 길을 또 되밟는다"는 비효율을 지적.
+  코스는 **막다른 길이 전부 노드(잎)로 표시된 트리(사이클 없음)** 임을 확인. "분기 탐색 전 새
+  분기를 만나 되돌아오는 것"은 루프가 아니라 트리의 정상 백트래킹 → 온라인 스택 압축으로 충분
+  (그래프+BFS/Trémaux 불필요)으로 결론.
+- **기존 알고리즘과 무엇이 다른가 (핵심)**:
+  - **이전(인용 골격, `solver.py`)**: EXPLORE 의 모든 회전을 raw `path[]` 에 선형 기록하고,
+    RETURN = `return_plan(path)` = **raw path 전체를 거꾸로+좌우반전**. → 막다른 길 진입 토큰까지
+    그대로 역재생되어 **복귀 때도 똑같이 삽질**. (실패표의 그 증상이 설계상 예정된 결과였음.)
+  - **변경 후**: raw `path[]`(폴백/검산용)와 **압축 `live[]`(살아있는 경로만)** 를 이중 기록.
+    잎 체크포인트/보류(deferred)/완료서브트리에서 **분기로 U턴해 돌아오는 순간 그 가지를
+    `live` 에서 통째 제거**(`prune`→`pop_dead_branch`, `del live[mark:]`). 도착에 닿으면 `live` =
+    유일한 출발→도착 단순경로 = 최단. **`return_plan(live)`** = live 거꾸로+좌우반전 →
+    RETURN 동선에 막다른 길이 끼지 않음.
+  - **교차검증 추가**: 순수 함수 `simplify_path(raw)`(U턴 3-토큰 기하 환원: L U R=U, L U S=R,
+    L U L=S, R U R=S, S U S=U …)를 따로 두고 **불변식 `live == simplify_path(path)`** 를 시뮬/replay
+    에서 assert. 온라인 압축과 사후 압축이 다르면 분기 식별(`facing`)·기록 버그 알람.
+  - **새 reason_code**: `PRUNE_DEAD_BRANCH`(mark, popped, reason=leaf/deferred/subtree_done).
+- **수정 파일**: [docs/specs/stage6_explore_return.md](docs/specs/stage6_explore_return.md) 만
+  (1·2·4·5·7·8·9·10·11절). 코드 미작성 — Stage 6 는 아직 시작 전(Stage 3 실기 Done 선행).
+  `lib/explore.py` 구현 시 `pop_dead_branch`/`simplify_path`/`return_plan(live 입력)` 반영 + 불변식
+  단위테스트가 체크리스트(10절)에 추가됨.
+- **하위 명세 영향 없음**: `return_plan`/역순 참조는 stage6 한 곳뿐(grep 확인). DECISIONS.md
+  reason_code 카탈로그 추가는 Stage 6 구현 시점에 4절과 함께 일괄(10절 기존 TODO 유지).
+- **다음**: 실기 흐름은 여전히 Stage 3 실기 Done 이 먼저. Stage 6 착수 시 `tests/sim_explore.py`
+  로 ⑥ "RETURN 에 막다른 잎 0" + ⑦ 불변식부터 PASS 시키고 브릭에 올린다.
+
 ### 2026-06-30 — pause/resume 검증 + Stage 4~7 명세 전파 (Agent: claude)
 - **Codex 작업 검증(통과)**: `pause` 명령(tuning_server)·`Space` 토글(dashboard)·`pause/resume`
   (robotctl)·`should_pause` 위빙(lib/turns.pivot, stage3.advance)·Stage1/2/3 루프 pause 분기

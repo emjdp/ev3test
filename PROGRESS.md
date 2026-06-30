@@ -140,6 +140,20 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-06-30 — 대시보드 save 상태 메시지 명확화(혼동 원인 규명) (Agent: claude)
+- **증상**: 노트북 대시보드에서 `S`→`y` 로 저장하니 "어디에 저장됨" 경로는 떴는데 노트북에서
+  그 파일을 못 찾음.
+- **규명(코드 버그 아님)**: 저장은 **브릭의 튜닝 서버**(`stage2_turns.py run()` 안)가 수행한다.
+  `tools/dashboard.py` 는 SSH 터널 너머 `{"cmd":"save"}` 만 보내고, 서버가 `params.save()` 로
+  `SAVE_PATH`(`os.path.join(_ROOT,"config","stage2.json")`, _ROOT=실행 위치=브릭 `~/ev3test`)에
+  쓴다. 상태줄에 뜬 경로는 **브릭 파일시스템 경로**(`/home/robot/ev3test/config/stage2.json`)라
+  노트북엔 없었다. 실제 데이터는 브릭에 잘 저장됐고 codex 가 그 값을 로컬 `config/stage2.json`
+  에 옮겨 커밋(b7e8ec0)했다 — 유실 없음.
+- **수정**: `tools/dashboard.py` `_compact_response` 의 save 응답 표시를
+  `ok saved=<경로>` → `ok saved on robot: <경로>` 로 바꿔, 그 경로가 로봇(브릭) 쪽임을 명시.
+  단순 표시 문구라 동작/계약 영향 없음(테스트 영향 없음). 대시보드는 노트북에서 실행 → scp 불필요.
+- **PC 검증**: `python3 -m py_compile tools/dashboard.py` 통과.
+
 ### 2026-06-30 — Stage 3 노드 감지 구현 + PC 검증 (Agent: claude)
 - **게이트**: Stage 2 가 🟢 실기 Done(상태판) 확인 → Stage 3 착수. Stage 4 색판정·Stage 5
   통합회전·Stage 6 탐색은 구현하지 않음(회전·색읽기 금지, 노드 위 정지까지만).

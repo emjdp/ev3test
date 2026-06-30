@@ -540,7 +540,9 @@ def _compact_response(response: dict[str, Any]) -> str:
     if "queued" in response:
         return f"ok queued={response.get('queued')}"
     if "saved" in response:
-        return f"ok saved={response.get('saved')}"
+        # 저장은 브릭(튜닝 서버)에서 일어난다. 경로도 브릭 파일시스템 기준이므로
+        # 노트북에서 찾지 않게 'robot:' 를 붙여 어느 쪽 경로인지 분명히 한다.
+        return f"ok saved on robot: {response.get('saved')}"
     if "latest" in response:
         latest = response.get("latest")
         if isinstance(latest, dict):

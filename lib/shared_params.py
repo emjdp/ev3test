@@ -88,7 +88,10 @@ class SharedParams(object):
             if name in self._max_step:
                 old = self._values[name]
                 step = self._max_step[name]
-                if abs(value - old) > step:
+                # 부동소수 여유(예: 1.05-1.0=0.05000000000000004 > 0.05). 정확히 한
+                # MAX_STEP 만큼의 변경은 허용해야 한다(문서화된 보정 스텝). 1e-9 는
+                # 어떤 param 단위에서도 무의미한 크기라 실제 과도 스텝은 그대로 거부된다.
+                if abs(value - old) > step + 1e-9:
                     return False, "step too big for {} (max {}, old {}, new {})".format(
                         name, step, old, value
                     )

@@ -59,6 +59,26 @@
 - 새 파일/주석/문서는 기존 톤에 맞춰 **한국어**로 쓴다.
 - 파일명: `stages/stage<N>_<짧은이름>.py` (예: `stage1_linetrace.py`).
 
+### 브릭 배포·실행 안내
+
+- 스테이지 코드를 브릭에 올릴 때는 기본적으로 **`scp` 를 사용한다**. `rsync` 명령을 기본
+  안내로 쓰지 않는다.
+- 스테이지 구현/수정 작업을 끝낸 에이전트는 최종 답변에 반드시 아래 두 묶음을 함께 적는다.
+  1. **코드 업로드 명령어**: `scp` 로 이번 스테이지 실행에 필요한 파일을 브릭의
+     `~/ev3test/` 아래로 올리는 명령. 디렉토리가 필요하면 `ssh ... 'mkdir -p ...'` 를 먼저
+     적는다.
+  2. **터미널별 실행 명령어**: 브릭 실행 터미널, SSH 터널 터미널, telemetry watcher,
+     dashboard/robotctl 터미널에서 각각 실행할 명령.
+- 업로드 예시는 아래 형식을 스테이지에 맞게 조정한다. 필요 파일이 더 적으면 변경된 파일만
+  올려도 되지만, `stages/`, `lib/`, `tools/` 의 실행 의존성이 빠지지 않게 한다.
+
+  ```bash
+  ssh robot@ev3dev.local 'mkdir -p ~/ev3test/stages ~/ev3test/lib ~/ev3test/tools ~/ev3test/config'
+  scp stages/stageN_name.py robot@ev3dev.local:~/ev3test/stages/
+  scp lib/*.py robot@ev3dev.local:~/ev3test/lib/
+  scp tools/*.py robot@ev3dev.local:~/ev3test/tools/
+  ```
+
 ## 3. Git 규약 (원격 없음, 로컬 추적용)
 
 원격은 연결하지 않는다. **변경 추적**이 목적이다. 각 에이전트는 *자기가 한 변경을
@@ -84,7 +104,9 @@
 
 1. [PROGRESS.md](PROGRESS.md) 갱신: 한 일, 실기 결과, 바꾼 값, 다음 할 일(TODO).
 2. 변경을 커밋(위 규약).
-3. 다음 사람이/에이전트가 막힘없이 이어갈 수 있게 **현재 상태와 막힌 지점**을 명확히 남긴다.
+3. 스테이지 코드 구현/수정이면 최종 답변에 **`scp` 업로드 명령어와 터미널별 실행 명령어**를
+   함께 첨부한다.
+4. 다음 사람이/에이전트가 막힘없이 이어갈 수 있게 **현재 상태와 막힌 지점**을 명확히 남긴다.
 
 ## 5. 하지 말 것
 

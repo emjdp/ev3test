@@ -157,6 +157,15 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-06-30 — Git 정책 변경: 원격 없음 → GitHub origin 팀 공유 (Agent: claude)
+- **원인 분석**: `git status` 의 "ahead of origin/master by 10 commits" 는 손상이 아니라,
+  AGENTS.md §3("원격 없음")과 달리 GitHub origin 이 연결돼 있고 `origin/master` 추적 ref 가
+  `ab695e8`(Stage0)에 멈춰 있어 그 뒤 로컬 10커밋이 미push 상태였기 때문. 워킹트리는 clean.
+  (부차: `refs/codex/turn-diffs/*` 체크포인트 ref 는 Codex 툴 내부용, 사용자 결정으로 그대로 둠.)
+- **정책 변경(사용자 결정)**: 팀원과 공유하게 되어 "원격 없음" 규칙을 폐기. AGENTS.md §3 을
+  "원격 공유: GitHub origin"으로 갱신(push/pull 규약, force-push 금지, 정책 변경 시점 메모 추가).
+- **조치**: AGENTS.md+PROGRESS 커밋 후 `master` 를 origin/master 로 push(누락 10+커밋 동기화).
+
 ### 2026-06-30 — Stage 3 3센서 추종 변경을 하위 DRAFT 명세에 전파 (Agent: claude)
 - **배경**: 직전 커밋에서 Stage 3 라인추종이 Stage 1 중앙센서 단일 PID 재사용 → 좌/중/우
   3센서(`lib/nodes.py:decide_line3`)로 바뀌었다. 이를 "Stage 1 라인추종을 가져온다"고 전제하던

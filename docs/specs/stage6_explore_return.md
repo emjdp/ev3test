@@ -61,6 +61,7 @@ io.turn(token)          -> None             # token = LEFT/STRAIGHT/RIGHT/UTURN,
 io.read_node_color()    -> int              # 노드 색 코드(0~7), 막다른 길에서만
 io.finish(label)        -> None
 io.stop_requested()     -> bool             # 네트워크 stop/watchdog 정지 플래그
+io.paused()             -> bool             # 일시정지(Space) 플래그. True 면 속도 0 유지·같은 목표 이어감
 ```
 > 이 시그니처는 이전 `Ev3Motion` 에서 인용한 것이다. Stage 5 의 실제 메서드명/반환형이
 > 다르면 **Stage 5 쪽 이름에 맞추고**, 어긋난 부분은 11절에 적는다(추측 금지).
@@ -292,6 +293,11 @@ def return_run(path):
 
 조정 가능한 키/파라미터(대시보드 TUI): `start/goal/checkpoint_color`,
 `cross_prefers_straight`, `explore_watchdog_s`. (주행 숫자는 Stage 1~5 화면에서 만진다.)
+
+`Space` 일시정지/재개(pause) — 인프라 공통([00_infra_dashboard.md](00_infra_dashboard.md)).
+구동층 `io.paused()` 를 매 루프 확인해 `io.stop_requested()` 와 같은 위치에서 처리한다(노드 간
+주행·회전 중 속도 0 유지 후 **같은 목표를 이어감**). pause 동안 `explore_watchdog_s` 시간은
+멈춰야 한다(정지 중을 무응답으로 오판해 안전정지하지 않게). 완전 정지는 `s`(stop).
 
 ---
 

@@ -180,6 +180,9 @@ def deliver():                                   # 도착 노드에서 호출(St
 - **주행 방해 금지**: 감지 훅은 매 스텝 거리 1회 읽기 + 순수 판정뿐. 그립 모터는 **멈춘 뒤**
   돈다(주행과 동시 구동 금지). settle 로 집은 뒤 라인 재포착을 보장.
 - **네트워크 stop/watchdog 정지**가 그립 동작 중에도 우선(구동층 보장).
+- **일시정지(Space/pause)**: 주행 루프는 인프라 공통대로 속도 0 유지 후 같은 목표를 이어간다.
+  단 `grip()`/`release()` 1회 모터 동작은 짧고 원자적이므로 **동작 중간에는 끊지 않고**, 완료 후
+  다음 루프에서 pause 를 반영한다(집는 중 멈춰 물체를 떨구지 않게).
 
 ---
 
@@ -193,6 +196,10 @@ def deliver():                                   # 도착 노드에서 호출(St
 
 조정 가능한 키/파라미터: `detect_cm`, `min_valid_cm`, `confirm_samples`,
 `grip_close_deg`, `grip_speed`, `post_grip_settle_s`.
+
+`Space` 일시정지/재개(pause) — 인프라 공통([00_infra_dashboard.md](00_infra_dashboard.md)).
+주행은 속도 0 유지 후 같은 목표를 이어가되, `grip`/`release` 모터 1회 동작 중에는 끊지 않는다
+(5-3 안전 조건). 완전 정지는 `s`(stop).
 
 ---
 

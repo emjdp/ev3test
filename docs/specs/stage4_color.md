@@ -244,6 +244,10 @@ def stage4_loop(params, hw, telem, events):
   를 다시 눌러 **위치에 따른 reflect 변화**를 직접 본다(실패 #2 진단).
 - 조정 키(라이브 set): `color_confirm_samples`, `color_mode_settle_s`,
   `color_dummy_reads`, `start_color`/`checkpoint_color`/`goal_color`.
+- `Space` 일시정지/재개(pause) — 인프라 공통([00_infra_dashboard.md](00_infra_dashboard.md)).
+  라인추종·`advance`(Stage 3 재사용) 중에는 속도 0 으로 멈췄다가 **같은 목표를 이어간다**
+  (`should_pause` 콜백). `do read_color` 같은 단발 동작은 멈춘 상태에서 누른다. 완전 정지는
+  `s`(stop, 재개하려면 재실행).
 - 에이전트는 **제안만**(`robotctl set` 직접 실행 금지) — [../LIVE_TUNING.md](../LIVE_TUNING.md) 워크플로우.
 
 ## 7. 보정 절차 (실기, 한 번에 변수 하나)

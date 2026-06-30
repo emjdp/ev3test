@@ -218,6 +218,9 @@ def stage5_run(seq, params, hw, telem, events):
 - 조정 키(라이브 set): `clear_junction_ms`, `straight_nudge_ms`, `pre_turn_forward_ms`.
   하위 값(kp/turn_factor/node_advance/색)은 **각 하위 스테이지에서 이미 확정** — 통합에선
   건드리지 않는다(필요하면 그 스테이지로 돌아가 보정).
+- `Space` 일시정지/재개(pause) — 인프라 공통([00_infra_dashboard.md](00_infra_dashboard.md)).
+  `follow_to_node`·`turn`·`nudge`(Stage 2~3 구동) 모두 pause 중 속도 0 유지 후 **같은 목표를
+  이어간다**(중간에 시퀀스/회전 목표를 버리지 않음). 완전 정지는 `s`(stop).
 - 에이전트는 제안만([../LIVE_TUNING.md](../LIVE_TUNING.md) 워크플로우).
 
 ## 7. 보정 절차 (실기, 한 번에 변수 하나)

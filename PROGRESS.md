@@ -157,6 +157,21 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-06-30 — pause/resume 검증 + Stage 4~7 명세 전파 (Agent: claude)
+- **Codex 작업 검증(통과)**: `pause` 명령(tuning_server)·`Space` 토글(dashboard)·`pause/resume`
+  (robotctl)·`should_pause` 위빙(lib/turns.pivot, stage3.advance)·Stage1/2/3 루프 pause 분기
+  모두 확인. `python3 -m py_compile`(stages/lib/tools), `python3 lib/tuning_server.py`
+  self-test, `pytest tests/`(35 passed) 전부 통과. Stage1 pause 분기는 `last` 갱신 뒤라 resume
+  시 dt 튐 없음. stop 은 pause 분기보다 먼저 검사돼 pause 중에도 즉시 정지 가능. 구현 정상.
+- **stage0 는 pause 불필요**: TuningServer/대시보드를 안 씀(연결확인 전용).
+- **Stage 4~7 명세 전파(코드 없음, "4부터는 명세로만")**: 각 스펙 6절에 `Space` pause/resume
+  의미를 인프라 공통으로 명시.
+  - stage4: 라인추종/`advance` 중 속도 0 유지 후 같은 목표 이어감, `read_color` 등 단발은 멈춘 채.
+  - stage5: `follow_to_node`/`turn`/`nudge` 가 pause 중 시퀀스·회전 목표를 버리지 않음.
+  - stage6: `io` 인터페이스에 `io.paused()` 추가, watchdog 시간은 pause 동안 멈춰야 안전정지 오발 없음.
+  - stage7: 주행은 pause 존중하되 `grip`/`release` 모터 1회 동작 중에는 끊지 않음(물체 떨굼 방지).
+- **다음**: 브릭에서 Stage 1/2/3 각각 `Space` pause/resume 실기 확인(Codex 항목과 동일 TODO).
+
 ### 2026-06-30 — 대시보드 Space 일시정지/재개 semantics 정리 (Agent: codex)
 - **검토 결과**: 기존 대시보드에서 `s` 는 `stop`(스테이지 루프 종료)이고, `Space`/`.` 는 마지막
   `do` 반복이었다. 사용자가 기대한 "잠깐 멈췄다가 다시 동작"과 달리 `stop` 은 EMERGENCY_STOP

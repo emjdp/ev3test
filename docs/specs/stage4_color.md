@@ -26,7 +26,9 @@
   - 회전·분기 선택·다음 라인 올라타기 → Stage 5.
   - 색을 보고 U턴/종료 같은 **주행 결정** → Stage 5/6. 여기서는 "색 → 노드 종류"
     라벨까지만 낸다(`NODE_IS_*` 이벤트는 남기되 그에 따른 동작은 하지 않는다).
-  - 라인추종 PID(Stage 1), 노드 bits 감지(Stage 3) 코드는 **수정하지 않고 재사용**한다.
+  - 라인추종(**Stage 3 좌/중/우 3센서 `decide_line3`**), 노드 bits 감지(Stage 3) 코드는
+    **수정하지 않고 재사용**한다. (Stage 1 은 하드웨어/주행 부호 기반만 제공 — 중앙센서 단일
+    PID 를 라인추종으로 쓰지 않는다. 2026-06-30 Stage 3 변경 반영.)
 
 > 이 단계의 본질은 **"색 읽기"라는 한 동작을 위치/타이밍까지 포함해 신뢰 가능하게**
 > 만드는 것이다. `do read_color` 단일 트리거로 위치별 재현하며 보정한다.
@@ -34,8 +36,9 @@
 ## 2. 파일 / 인터페이스
 
 - 새 파일: `stages/stage4_color.py` (독립 실행 가능, Stage 3 위에 색 읽기를 얹음).
-- 재사용(수정 금지): Stage 1 라인추종, Stage 3 노드 감지(`bits`, debounce, `node_advance`),
-  `lib/` 인프라(shared_params / telemetry / tuning_server / events 로깅).
+- 재사용(수정 금지): **Stage 3 의 3센서 라인추종(`lib/nodes.py:decide_line3`)** + 노드 감지
+  (`bits`, debounce, `node_advance`), `lib/` 인프라(shared_params / telemetry / tuning_server /
+  events 로깅). (Stage 1 은 부호/속도 기반만 — 중앙센서 PID 재사용 아님.)
 - 하드웨어 모드 전환은 구동층 `lib/hardware.py` 에 둔다(없으면 Stage 4 에서 추가).
 
 ### 판단층(순수 함수, 하드웨어 없음)
@@ -199,10 +202,10 @@ def read_node_color_at_rest(hw, params, telem):
 
 ```python
 def stage4_loop(params, hw, telem, events):
-    # Stage 1 라인추종 + Stage 3 노드 감지를 그대로 돌린다(코드 재사용).
+    # Stage 3 의 3센서 라인추종(decide_line3) + 노드 감지를 그대로 돌린다(코드 재사용).
     while True:
         if stop_requested(): stop(); return
-        arr = follow_to_node()        # Stage1+Stage3: 노드에서 멈추고 bits/dist_mm 확정
+        arr = follow_to_node()        # Stage3: 3센서 추종+감지로 노드에서 멈추고 bits/dist_mm 확정
         # ---- 색 읽기 위치 결정 (실패 #2) ----
         if params["read_color_position"] == "after_advance":
             node_advance_move()       # Stage 3 의 node_advance 만큼 전진 후 읽기
@@ -315,7 +318,7 @@ def stage4_loop(params, hw, telem, events):
 - [ ] 판단층: `classify_node_color`, `is_floor_read`, `ColorConfirmer` 작성(순수).
 - [ ] 시작 시 색코드 자기검증(서로 다름 + 0~7) + `allow_duplicate` 우회.
 - [ ] `read_node_color_at_rest` (모드전환 1회 + 확정 루프 + 복귀) 작성.
-- [ ] `stages/stage4_color.py`: Stage1+Stage3 재사용 + 색 읽기 위치(`at_node` 기본) +
+- [ ] `stages/stage4_color.py`: Stage 3 재사용(3센서 `decide_line3` 추종 + 노드 감지) + 색 읽기 위치(`at_node` 기본) +
       `COLOR_READ`/`COLOR_FLOOR_WARN`/`NODE_IS_*` 이벤트 로깅.
 - [ ] 라이브 params 6개 + PARAM_LIMITS + MAX_STEP 등록, config/ 에 나머지 값.
 - [ ] `do read_color` 트리거 연결, telemetry 키(`color`,`color_reflect`,`dist_since_node_mm`).
@@ -324,6 +327,11 @@ def stage4_loop(params, hw, telem, events):
 - [ ] 7절 보정으로 실기 Done, [../../PROGRESS.md](../../PROGRESS.md) 기록.
 
 ## 11. 미해결 / 실기 확인 필요
+
+> **검토 반영 메모 (2026-06-30, Stage 3 변경 전파).** Stage 3 가 중앙센서 단일 PID 재사용을
+> 버리고 **좌/중/우 3센서 추종(`lib/nodes.py:decide_line3`)**으로 확정되었다. Stage 4 는 색
+> 읽기를 **Stage 3 위에** 얹으므로, 라인추종 재사용 대상은 `decide_line3` + Stage 3 노드 감지다
+> (Stage 1 은 부호/속도 기반만). 색 읽기 전 정지 위치/`node_advance` 손잡이는 Stage 3 그대로다.
 
 - **`floor_reflect_min` 절대값 미정.** Stage 1 의 흑/백 raw 측정값과 실제 마커 위
   reflect 가 있어야 정한다(빈 바닥 reflect 와 마커 위 reflect 의 중간). 실기 측정 필요.

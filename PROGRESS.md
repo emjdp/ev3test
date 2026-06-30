@@ -32,6 +32,13 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - ✅ **near-term 반영 완료(REVIEWED 승격)**:
   - `00_infra_dashboard.md` — #2 브릭 통신 단일 채널(watcher만 상시접속·3~5Hz, 대시보드는 로컬 파일 읽기).
   - `stage1_linetrace.md` — #4 라인유실 상태전이 순수화(`decide_line`), #8 D항 EMA 필터(내부상수).
+- ✅ **Stage 3 변경 전파(2026-06-30, claude)**: Stage 3 라인추종이 중앙센서 단일 PID 재사용 →
+  좌/중/우 3센서(`lib/nodes.py:decide_line3`)로 확정됨에 따라, 이를 전제하던 하위 DRAFT 명세를 갱신.
+  - `stage4_color.md`·`stage5_integration.md` — "Stage 1 라인추종 PID 재사용" → "Stage 3 3센서
+    추종(`decide_line3`) 재사용, Stage 1 은 부호/속도 기반만"으로 본문+§11 검토 메모 반영.
+  - `stage6_explore_return.md`·`stage7_gripper.md` — 재사용 컴포넌트 목록에 "라인추종층 = Stage 3
+    3센서" 한 줄 주석 추가(나머지 DRAFT 유지). Stage 5 의 회전 후 재포착은 중앙비트(=3센서 bits[1])
+    그대로라 변경 없음을 §11 에 명시.
 - ✅ **해당 스테이지 11절에 검토 메모만 추가(DRAFT 유지, 그 단계 착수 시 반영)**:
   - `stage5` #6 LEAF U턴 강제 / `stage6` #3 복귀 노드패턴 검증·#5 재귀→명시스택 /
     `stage7` #1 초음파 백그라운드 폴링·#7 그리퍼 스톨 보호.
@@ -149,6 +156,20 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — Stage 3 3센서 추종 변경을 하위 DRAFT 명세에 전파 (Agent: claude)
+- **배경**: 직전 커밋에서 Stage 3 라인추종이 Stage 1 중앙센서 단일 PID 재사용 → 좌/중/우
+  3센서(`lib/nodes.py:decide_line3`)로 바뀌었다. 이를 "Stage 1 라인추종을 가져온다"고 전제하던
+  하위 DRAFT 명세가 stale 해져 갱신(코드 구현 아님 — 미래 단계 코드 금지 §1 준수).
+- **stage4_color.md**: 재사용 대상 라인추종을 `decide_line3`(+Stage 3 노드 감지)로 수정. §11 에
+  Stage 3 변경 전파 검토 메모 추가(색 읽기 위치/`node_advance` 손잡이는 Stage 3 그대로).
+- **stage5_integration.md**(가장 영향 큼): 선행/§1 범위/§2 재사용 인터페이스/§3 params 재사용
+  목록/§5 의사코드/§10 체크리스트의 "선 추종(Stage 1)" → "선 추종(Stage 3 3센서 `decide_line3`)"
+  로 일괄 수정. §11 에 ① 라인추종 거동은 Stage 3 파일 상수(`FOLLOW_*`)로 보정 ② 회전 후 재포착은
+  중앙비트(=3센서 `bits[1]`)로 Stage 2 PivotTracker 그대로(변경 없음) 명시.
+- **stage6/stage7**: 재사용 컴포넌트 목록에 "라인추종층 = Stage 3 3센서 `decide_line3`" 주석 1줄.
+- **검토 처리 현황** 절에 "Stage 3 변경 전파" 항목 기록.
+- 문서만 변경 → 코드/테스트 영향 없음. `git grep` 으로 "Stage 1 라인추종 재사용" 잔존 표현 정리 확인.
 
 ### 2026-06-30 — Stage 3 주행 판단을 좌/중/우 3센서로 교체(중앙센서 PID 제거) (Agent: claude)
 - **문제**: Stage 3 가 Stage 1 중앙센서 PID(`decide_line`)를 그대로 import 해 라인추종했다.

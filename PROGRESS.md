@@ -5,14 +5,14 @@
 
 ## 현재 단계
 
-**Stage 1 — 기초 라인트레이싱 준비** (Stage 0 실기 Done, Stage 1 착수 전)
+**Stage 1 — 기초 라인트레이싱 구현 (PC 검증 완료, 실기 검증 대기)**
 
 ## 단계 상태판
 
 | 단계 | 상태 | 비고 |
 |---|---|---|
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
-| Stage 1 기초 라인트레이싱 | ⬜ 시작 전 | 다음 착수 단계 |
+| Stage 1 기초 라인트레이싱 | 🟡 진행 중 | 코드 작성 + PC 검증 완료. 실기 보정①②③ + 코스 추종 대기 |
 | Stage 2 원시 회전(좌/우/U) | ⬜ 시작 전 | |
 | Stage 3 노드 감지 | ⬜ 시작 전 | |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
@@ -52,13 +52,58 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
         UI 메타(step/unit), data-driven dashboard, 액션 반복/자동 재실행/coarse step.
       - `lib/hardware.py` 는 **Stage 0 실기 Done 후** (모터 극성·트림 결과 필요).
       - ⚠️ **MVP 한정**: 무거운 대시보드(그래프/자동튜닝)는 금지(LIVE_TUNING.md). py_compile + PC 테스트.
-- [ ] (이후) **Stage 1~7 은 한 번에 하나씩**, 각 이전 단계 **실기 Done 후**에만 착수.
-      ⚠️ 1~7 일괄 작성 금지(AGENTS.md 1절). 담당은 **codex·claude 협업/교대**(둘이 번갈아 또는 공동).
-- [ ] (Stage 1 착수 시) 인프라 MVP를 Stage 1 제어 루프에 통합해 실기 검증:
-      watcher 단일 polling, dashboard 로컬 파일 렌더, `robotctl set/do/stop`, save/rollback 확인.
+- [x] (Stage 1) **코드 작성 + PC 검증 완료** — `stages/stage1_linetrace.py`, `lib/hardware.py`,
+      `tests/test_stage1_logic.py`. 판단층(순수)↔구동층(ev3dev2) 분리, params 6개, reason 4종. [claude]
+- [ ] **실기 검증(Stage 1 Done 조건)**: 아래 "실기 검증 필요" 항목. SSH 터널 띄우고 보정①②③.
+- [ ] (이후) **Stage 2 는 Stage 1 실기 Done 후에만 착수.** ⚠️ 1~7 일괄 작성 금지(AGENTS.md 1절).
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
+### Stage 1 실기 검증 필요 (다음에 브릭에서 할 일)
+
+1. **인프라 통합 동작**: 브릭에서 `python3 stages/stage1_linetrace.py` 실행 → 노트북에서
+   `python3 tools/robotctl.py latest` 가 프레임 반환(서버/터널 OK), `set kp 0.85` 반영,
+   범위·MAX_STEP 거부 응답, `stop` 으로 정지(EMERGENCY_STOP 이벤트) 확인.
+2. **보정① target_reflect**: 중앙센서 흰바닥/검은선 raw 측정(telemetry `reflect`) →
+   `target_reflect = (흰+검)/2` 로 `set`. 추정 기본 35 는 임시값.
+3. **보정② 직진 트림**: 저속 직진 쏠림 보면 `lib/hardware.py` `LEFT/RIGHT_MOTOR_TRIM`
+   상수 하나만 미세 조정(라이브 아님, 재배포 1회성).
+4. **보정③ kp/kd**: `kp` 0.1씩 올리며 곡선 추종, 진동하면 내리거나 `kd` 0.05씩. ki 는 0 유지.
+5. **미확정값 실기 확정**: 아래 "Stage 1 실기 확정 필요 상수" 표.
+6. **Done**: 직선+곡선 코스 끝까지 추종 + `robotctl stop`/Ctrl-C 정지. 확정 params `robotctl save`.
+
+| 미확정 상수/부호 | 위치 | 현재값 | 확정 방법 |
+|---|---|---|---|
+| 조향 부호(`to_wheel_speeds` base∓turn) | stage1 §11 | `base-turn / base+turn` | 선 한쪽 치우칠 때 복귀 방향 보고 부호/좌우 확정 |
+| `LINE_LOST_MARGIN` | stage1 상수 | 25 | 자꾸 LOST 오판하면 ↑, 늦게 잡으면 ↓ |
+| `RECOVER_SPEED`(유실 시 거동) | stage1 상수 | 0(정지) | 정지 vs 저속 직진 중 실기 선택 |
+| `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
+
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — Stage 1 기초 라인트레이싱 구현 + 인프라 통합 (Agent: claude)
+- **범위**: Stage 1 만. 회전(Stage2)·노드(Stage3)·색(Stage4)·그리퍼 미구현. 중앙센서 in2 1개.
+- **새 파일**:
+  - `stages/stage1_linetrace.py` — 판단층(순수)과 구동층 분리. 파일 맨 위에 INITIAL_PARAMS(6개)
+    + PARAM_LIMITS + MAX_STEP + UI_STEP/UNITS. 제어 루프 `run()`: stop 플래그 확인 →
+    dt 실측 → 센서 → params snapshot(비차단) → `decide_line`(순수) → 구동 → telemetry/reason.
+  - `lib/hardware.py` — 구동층(ev3dev2). outA/outB 주행 + in2 반사광. ev3dev2 import 는
+    `__init__` 안(PC py_compile 안전). 좌/우 곱셈 트림 상수(라이브 아님).
+  - `tests/test_stage1_logic.py` — 판단층 단위 테스트(ev3dev2 없이).
+- **판단층(순수, replay 가능)**: `classify_line`, `to_wheel_speeds`, `decide_line`. `decide_line`
+  은 `state` 를 제자리 갱신 + `(action, reason_code, detail)` 반환(replay.py 계약). PID 는 기존
+  `lib/pid.py` `Pid`(D항 EMA, 검토 #8) 재사용 — 중복 구현 안 함. dt 는 sample t_ms 차로 측정.
+- **params 6개**: kp/ki/kd/base_speed/turn_limit/target_reflect (STAGES.md 한도 준수).
+- **telemetry**: reflect/error/turn/left_speed/right_speed (+ 인프라 공통 t_ms/dt_ms/param_rev/running).
+- **reason_code 4종**: LINE_FOLLOW(0.25s throttle)/LINE_LOST/LINE_RECOVER/EMERGENCY_STOP.
+  모두 DECISIONS.md 기존 카탈로그에 있어 카탈로그 추가 없음.
+- **정지**: 네트워크 `stop` → `on_stop` 가 플래그만 세팅(제어 루프 비차단), Ctrl-C 도 처리.
+  **BACK 버튼은 읽지도 할당하지도 않음**(정책 준수).
+- **PC 검증(통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py`,
+  `tests/test_stage1_logic.py`(classify/wheel/PID 부호·클램프·첫틱 D=0/유실·복구 전이/state 제자리),
+  `lib/*` self-test 전부, replay 왕복(`--decider stages.stage1_linetrace:decide_line`:
+  기본 params 는 LINE_LOST→RECOVER, `--set target_reflect=70` 은 유실 없음 — 재연으로 값 영향 확인).
+- **실기 검증 필요**: 위 TODO "Stage 1 실기 검증 필요" + "실기 확정 필요 상수"(조향 부호, LINE_LOST_MARGIN,
+  RECOVER_SPEED, 트림). 실기 Done 전까지 Stage 2 착수 금지.
 
 ### 2026-06-30 — Stage0 실기 Done 확정 + BACK 버튼 정책 변경 (Agent: codex)
 - 브릭에서 `python3 stages/stage0_check.py` 실행 결과 Python `3.5.3` 확인. 이후 브릭 실행

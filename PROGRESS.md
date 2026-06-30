@@ -5,8 +5,9 @@
 
 ## 현재 단계
 
-**Stage 3 — 노드 감지 착수 대기 (Stage 2 실기 Done)**
+**Stage 3 — 노드 감지 구현 + PC 검증 완료, 실기 검증 필요 (Stage 2 실기 Done)**
 (Stage 1 은 2026-06-30 사용자 판단으로 실기 Done 처리 — 아래 상태판/로그 참조.)
+**다음 단계는 Stage 3 가 실기 Done 된 뒤에야 Stage 4(색상코드 노드 판정)만 가능하다.**
 
 ## 단계 상태판
 
@@ -15,7 +16,7 @@
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
-| Stage 3 노드 감지 | ⬜ 시작 전 | |
+| Stage 3 노드 감지 | 🟡 진행 중 | 2026-06-30 코드+PC검증 완료(claude). 좌/중/우 bits, debounce 확정, 노드 위 정지. **실기 검증 필요** |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
@@ -64,9 +65,37 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - [x] **Stage 2 실기 Done — 사용자 판단으로 처리(2026-06-30).** 브릭 저장 파일 확인:
       `~/ev3test/config/stage2.json` = `turn_speed 18`, `turn_90_factor 0.9`,
       `turn_180_factor 0.8`, `post_turn_settle_ms 120`. 로컬 `config/stage2.json`에도 반영.
-- [ ] **Stage 3 착수 전 확인**: `docs/STAGES.md` / `docs/specs/stage3_node_detect.md` 읽고,
-      Stage 2 확정 코드는 수정하지 않는다.
+- [x] **Stage 3 착수 전 확인**: `docs/STAGES.md` / `docs/specs/stage3_node_detect.md` 읽고,
+      Stage 2 확정 코드는 수정하지 않는다. [claude]
+- [x] (Stage 3) **코드 작성 + PC 검증 완료** — `stages/stage3_node_detect.py`, `lib/nodes.py`,
+      `lib/hardware.py`(좌/우 반사광 + enc_avg 추가만), `tests/test_stage3_logic.py`. [claude]
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
+
+### Stage 3 실기 검증 필요 (다음에 브릭에서 할 일) — 한 번에 변수 하나
+
+> 보정 루프: 노트북에서 `robotctl do follow` → 선 따라가다 노드에서 1정지 → 값 하나만
+> 고치고 다시 `do follow`. 만질 값은 **로그가 짚는 것만**(DECISIONS.md 6장).
+
+1. **threshold 부터(센서별 1개씩).** 흰 바닥/검은 선에 각 센서를 두고 telemetry `reflect_l/c/r`
+   raw 를 본다. **좌/우 센서(in1/in3)는 미실측** — Stage 1 중앙 실측(검정 0/흰색 10)을 따라
+   `left/center/right_threshold` 기본 5로 시작했다. 흑·백 중간으로 한 센서씩 맞춘다.
+   검증: 직선(`010`), 십자(`111`), 막다른길(`000`)에 올려두면 기대 bits 가 나와야 한다.
+2. **`node_confirm_ms`.** 직선 구간에서 오감지(`NODE_*`) 없는 최소값. 일찍 확정되면 ↑,
+   노드에서 못 멈추면 ↓. (replay 로 confirm 영향 먼저 확인 가능 — 아래.)
+3. **`node_debounce_ms`.** 한 노드 두 번 잡으면 ↑, 가까운 두 노드 하나로 합치면 ↓.
+4. **`node_advance`(핵심, 실패#1).** `NODE_CONFIRMED` 의 `dist_mm` 와 실제 멈춤 위치 비교 —
+   오버슛이면 `node_advance` 만 내린다. 모자라면 올린다. confirm 과 동시에 만지지 않는다.
+5. **`deg_to_mm` 환산계수**: `WHEEL_DIAM_MM=56` 은 가정(Stage2 와 동일). 줄자로 바퀴지름 실측
+   후 stage3 상수 갱신(미확정이면 `dist_mm` 는 상대 비교용). [§11]
+6. 모든 노드 종류(직선/좌·우 분기/T/십자/막다른길) 노드 위 정지 + 올바른 bits → `save`
+   → `config/stage3.json`. **그 전에는 Stage 3 Done 으로 표시하지 않는다.**
+
+| 미확정 상수/값 | 위치 | 현재값 | 확정 방법 |
+|---|---|---|---|
+| `left/right_threshold` 기본 | stage3 INITIAL_PARAMS | 5 | 좌/우 센서 미실측 — 실기 raw 보고 센서별 확정 |
+| `WHEEL_DIAM_MM`(deg→mm) | stage3 상수 | 56.0(가정) | 줄자 실측 후 갱신 |
+| `ADVANCE_SPEED` | stage3 상수 | 15 | advance 가 느리고 안정적인지 실기 확인 |
+| `CONTINUE_AFTER_NODE` | stage3 상수 | False(1노드 1정지) | 코스 연속 통과 확인 시 True 검토 |
 
 ### Stage 2 실기 검증 결과 (2026-06-30 Done)
 
@@ -110,6 +139,45 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — Stage 3 노드 감지 구현 + PC 검증 (Agent: claude)
+- **게이트**: Stage 2 가 🟢 실기 Done(상태판) 확인 → Stage 3 착수. Stage 4 색판정·Stage 5
+  통합회전·Stage 6 탐색은 구현하지 않음(회전·색읽기 금지, 노드 위 정지까지만).
+- **범위**: 좌·중·우 3센서 반사광 → threshold → bits(`LCR`) → debounce 로 노드 후보/확정.
+  Stage 1 라인추종(중앙센서 PID)을 수정 없이 import 재사용해 "선 따라가다 노드에서 멈춤"까지.
+- **새 파일**:
+  - `lib/nodes.py` — 판단층(순수, ev3dev2/시간/모터 없음). `bits_from_raw`, `node_kind`,
+    `classify_node`, `NodeDebouncer`(후보→확정, 010 리셋, node_debounce 중복방지),
+    `decide_node`(replay 어댑터, `tools/replay.py --decider lib.nodes:decide_node`).
+  - `stages/stage3_node_detect.py` — INITIAL_PARAMS(**6개**)+LIMITS/STEP/UI/UNITS/ORDER,
+    IDLE↔FOLLOW 제어 루프. `do follow` 로 1세트(선추종→노드 확정 정지), `do nudge <mm>`.
+    노드 확정 시 `hw.stop()`+로그+`advance(node_advance mm)`+beep. 네트워크 비차단(snapshot).
+  - `tests/test_stage3_logic.py` — 15 테스트(bits 변환/노드종류 8/후보 debounce/중복방지/
+    노이즈 무시/000 처리/확정 정지 action/advance 도달·정지·제자리/params 메타).
+- **lib/hardware.py 최소 추가(Stage 1/2 메서드·`__init__` 동작 불변)**: `read_left_reflect`/
+  `read_right_reflect`/`read_reflect`(좌/중/우 튜플)·`enc_avg`. 좌/우 센서(in1/in3)는 Stage1/2
+  가 안 쓰므로 `__init__` 을 건드리지 않고 **첫 사용 시 지연 오픈**(`_ensure_side_sensors`).
+- **라이브 params 6개**(요청·STAGES 한도): `left/center/right_threshold`, `node_confirm_ms`,
+  `node_debounce_ms`, `node_advance`. threshold 기본 5(Stage1 중앙 실측 검정0/흰10 따름).
+  명세는 `thr_*`/기본40 이었으나 **요청 네이밍(`*_threshold`)·실측 범위(0~10)**에 맞춰 조정.
+- **reason_code**: `NODE_CANDIDATE`/`NODE_CONFIRMED`/`CORNER_LEFT`/`CORNER_RIGHT`/`LINE_FOLLOW`/
+  `LINE_LOST`/`LINE_RECOVER`/`EMERGENCY_STOP` — 전부 DECISIONS.md 카탈로그에 **이미 존재 →
+  추가 없음**. `000` 은 DEAD_END 노드 후보로 다뤄 Stage1 `LINE_LOST` 와 reason/kind 로 구분.
+- **telemetry**: `reflect_l/c/r`(+`reflect` 리스트)·`bits`·`node_candidate`·`node_confirmed`·
+  `dist_mm`·`enc_avg`·`confirm_count`·`mode` + 추종 `error/turn/left_speed/right_speed`.
+- **dist_mm**: 엔코더 평균각 → `deg_to_mm`(바퀴지름 56mm 가정, §11 실측 필요). 실패#1 진단 핵심.
+- **정지**: 네트워크 stop → 플래그만(제어/advance 폴링이 안전 시점 처리), Ctrl-C 처리.
+  **BACK 버튼은 읽지도 할당하지도 않음.** 노드 확정 시 기본은 정지(`CONTINUE_AFTER_NODE=False`).
+- **PC 검증(통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py`,
+  `tests/test_stage3_logic.py`(15), `lib/nodes.py` self-test, Stage 1/2 회귀
+  (`test_stage1_logic.py`/`test_stage2_logic.py`)·lib self-test 전부, replay 시나리오
+  (`--decider lib.nodes:decide_node` — confirm_ms 100 은 CONFIRMED, 300 은 CANDIDATE 만 →
+  확정 타이밍을 로봇 없이 재연), 서버 통합 smoke(describe stage3·do follow/nudge 큐·미지액션
+  거부·set 1스텝 허용/과스텝·범위 거부·stop).
+- **한 번에 변수 하나**: 보정 순서를 threshold(센서별)→confirm→debounce→advance 로 PROGRESS
+  "Stage 3 실기 검증 필요" 블록에 명시. replay 로 confirm 영향 먼저, advance 는 실기 do 로.
+- **실기 검증 필요**: 위 블록. **Stage 3 Done 아님**(모든 노드 종류 노드 위 정지/출력 + save 전).
+  Stage 3 Done 후에만 Stage 4 착수.
 
 ### 2026-06-30 — Stage 2 실기 Done 확정 + 저장값 기록 (Agent: codex)
 - 사용자가 Stage 2 회전 보정 완료 및 저장을 보고해 Stage 2 를 실기 Done 으로 표시했다.

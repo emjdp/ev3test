@@ -5,7 +5,7 @@
 
 ## 현재 단계
 
-**Stage 2 — 원시 회전(좌90/우90/U턴) 보정 중 (코드+PC 검증 완료, 실기 각도 보정 대기)**
+**Stage 3 — 노드 감지 착수 대기 (Stage 2 실기 Done)**
 (Stage 1 은 2026-06-30 사용자 판단으로 실기 Done 처리 — 아래 상태판/로그 참조.)
 
 ## 단계 상태판
@@ -14,7 +14,7 @@
 |---|---|---|
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
-| Stage 2 원시 회전(좌/우/U) | 🟡 진행 중 | 코드+PC 검증 완료(엔코더 각도 회전). 좌→우→U 각 3회 연속 재현은 **실기 검증 필요** |
+| Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지 | ⬜ 시작 전 | |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
@@ -61,37 +61,32 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       그때 확정한다. (Stage 0 도 같은 방식으로 사람이 Done 처리한 선례.)
 - [x] (Stage 2) **코드 작성 + PC 검증 완료** — `stages/stage2_turns.py`, `lib/decide_turn.py`,
       `lib/turns.py`, `lib/hardware.py`(엔코더 메서드 추가), `tests/test_stage2_logic.py`. [claude]
-- [ ] **Stage 2 실기 검증(Done 조건)**: 아래 "Stage 2 실기 검증 필요" 블록. ⚠️ Stage 3 이후 착수 금지.
+- [x] **Stage 2 실기 Done — 사용자 판단으로 처리(2026-06-30).** 브릭 저장 파일 확인:
+      `~/ev3test/config/stage2.json` = `turn_speed 18`, `turn_90_factor 0.9`,
+      `turn_180_factor 0.8`, `post_turn_settle_ms 120`. 로컬 `config/stage2.json`에도 반영.
+- [ ] **Stage 3 착수 전 확인**: `docs/STAGES.md` / `docs/specs/stage3_node_detect.md` 읽고,
+      Stage 2 확정 코드는 수정하지 않는다.
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
-### Stage 2 실기 검증 필요 (다음에 브릭에서 할 일)
+### Stage 2 실기 검증 결과 (2026-06-30 Done)
 
-> **한 번에 변수 하나.** 좌가 끝나야 우, 우가 끝나야 U턴(stage2_turns.md §7). 값 하나 바꾸고
-> `do` 재실행 → 결과를 여기 기록.
+- 사용자 실기 보정 후 `robotctl save` 완료.
+- 확인:
+  - `python3 tools/robotctl.py get` 현재값이 아래 저장값과 일치.
+  - 브릭 `~/ev3test/config/stage2.json` 내용이 아래 저장값과 일치.
+- 저장값:
+  - `turn_speed`: 18
+  - `turn_90_factor`: 0.9
+  - `turn_180_factor`: 0.8
+  - `post_turn_settle_ms`: 120
+- Done 판단: 사용자 요청에 따라 Stage 2 를 실기 Done 으로 표시. 이후 Stage 3 착수 가능.
 
-1. **인프라/트리거 동작**: 브릭에서 `python3 stages/stage2_turns.py` 실행 → 노트북에서
-   `python3 tools/robotctl.py describe`(stage=stage2, actions=turn_left/right/uturn 확인),
-   `do turn_left` 가 회전 1회 + `TURN_LEFT` events + `enc_avg` telemetry 를 내는지,
-   `stop` 으로 회전 중 즉시 정지(EMERGENCY_STOP)되는지 확인.
-2. **바퀴 기하 실측 → `BASE_PIVOT_DEG_90/180` 1차값 갱신**: 현재 값은 **가정**(바퀴지름 d≈56mm,
-   트레드 T≈120mm → 90°≈193°, 180°≈386°). 줄자로 d·T 실측 후 공식
-   `deg = (T/2)*θ_rad / (π*d) * 360` 으로 다시 계산해 `stage2_turns.py` 상수만 교체(라이브 아님).
-3. **회전 방향 부호 확인**: 좌회전=좌바퀴 후진/우바퀴 전진 가정(`lib/turns.py` `_DIRS`).
-   반대면 `_DIRS` 부호만 뒤집는다(Stage 0 모터 극성 기준).
-4. **좌90 보정**: `turn_speed` 낮게 고정 → `do turn_left` → `turn_90_factor` 만 0.05씩 조정 →
-   **3회 연속 ±오차** 안에 들 때까지. (이때 다른 값 안 만짐.)
-5. **우90 확인**: 같은 `turn_90_factor` 로 `do turn_right` 3회. 좌/우가 계속 다른 방향으로 어긋나면
-   `turn_90_left/right_factor` 분리 검토(stage2_turns.md §11, 라이브 5개로 늘어도 6 이하).
-6. **U턴 보정**: `do uturn` → `turn_180_factor` 만 0.05씩 → 3회 연속 재현. U턴 방향(좌/우)도 확정.
-7. **settle 점검**: 정지 직후 밀려 측정 흔들리면 `post_turn_settle_ms` ↑.
-8. **Done**: 좌·우·U 셋 다 3회 연속 재현 → `robotctl save`(config/stage2.json). **그 전엔 진행 중.**
-
-| 미확정 상수/부호 | 위치 | 현재값 | 확정 방법 |
+| 확정/잔여 메모 | 위치 | 현재값 | 메모 |
 |---|---|---|---|
-| `BASE_PIVOT_DEG_90/180` | stage2 상수 | 193 / 386 (가정) | 바퀴 d·트레드 T 실측 후 기하식 재계산 |
-| 회전 방향 부호(`_DIRS`) | lib/turns.py | 좌=(-,+)/우=(+,-)/U=(+,-) | 실기 회전 방향 보고 필요 시 부호 반전 |
-| 좌/우 계수 통합 vs 분리 | stage2 params | 통합(`turn_90_factor`) | 좌/우 오차가 계속 다르면 분리 |
-| U턴 방향 | lib/turns.py | 우회전과 동일 | 코스/공간 제약에 따라 실기 확정 |
+| `BASE_PIVOT_DEG_90/180` | stage2 상수 | 193 / 386 (가정) | 실제 보정은 저장 factor 로 확정. 상수는 Stage 2 Done 후 수정하지 않음 |
+| 회전 방향 부호(`_DIRS`) | lib/turns.py | 좌=(-,+)/우=(+,-)/U=(+,-) | 실기에서 사용 가능하다고 판단되어 유지 |
+| 좌/우 계수 통합 vs 분리 | stage2 params | 통합(`turn_90_factor=0.9`) | 분리 없이 Done 처리 |
+| U턴 방향 | lib/turns.py | 우회전과 동일 | `turn_180_factor=0.8` 로 Done 처리 |
 
 ### Stage 1 실기 검증 필요 (다음에 브릭에서 할 일)
 
@@ -115,6 +110,15 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — Stage 2 실기 Done 확정 + 저장값 기록 (Agent: codex)
+- 사용자가 Stage 2 회전 보정 완료 및 저장을 보고해 Stage 2 를 실기 Done 으로 표시했다.
+- 확인:
+  - `robotctl get` 현재값: `turn_speed=18`, `turn_90_factor=0.9`, `turn_180_factor=0.8`,
+    `post_turn_settle_ms=120`.
+  - 브릭 `~/ev3test/config/stage2.json` 내용도 같은 값으로 확인.
+- 로컬 추적용 `config/stage2.json` 을 추가해 검증값을 git 에 남겼다.
+- 다음 단계는 Stage 3 노드 감지. Stage 2 확정 코드/값은 수정하지 않는다.
 
 ### 2026-06-30 — 브릭 업로드/실행 안내 규칙 추가 (Agent: codex)
 - `AGENTS.md` 에 스테이지 코드를 브릭에 올릴 때 기본 안내를 `scp` 로 하도록 명시했다.

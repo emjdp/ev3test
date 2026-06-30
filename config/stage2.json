@@ -1,0 +1,6 @@
+{
+  "post_turn_settle_ms": 120,
+  "turn_180_factor": 0.8,
+  "turn_90_factor": 0.9,
+  "turn_speed": 18
+}

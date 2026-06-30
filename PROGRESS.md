@@ -5,14 +5,14 @@
 
 ## 현재 단계
 
-**Stage 1 — 기초 라인트레이싱 구현 (PC 검증 완료, 실기 검증 대기)**
+**Stage 1 — 기초 라인트레이싱 보정 중 (센서 기준값 1차 확정, PID 보정 대기)**
 
 ## 단계 상태판
 
 | 단계 | 상태 | 비고 |
 |---|---|---|
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
-| Stage 1 기초 라인트레이싱 | 🟡 진행 중 | 코드 작성 + PC 검증 완료. 실기 보정①②③ + 코스 추종 대기 |
+| Stage 1 기초 라인트레이싱 | 🟡 진행 중 | 중앙센서 반사광: 검정 0 / 흰색 10, target_reflect 6, base_speed 20. PID 보정 대기 |
 | Stage 2 원시 회전(좌/우/U) | ⬜ 시작 전 | |
 | Stage 3 노드 감지 | ⬜ 시작 전 | |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
@@ -54,7 +54,7 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       - ⚠️ **MVP 한정**: 무거운 대시보드(그래프/자동튜닝)는 금지(LIVE_TUNING.md). py_compile + PC 테스트.
 - [x] (Stage 1) **코드 작성 + PC 검증 완료** — `stages/stage1_linetrace.py`, `lib/hardware.py`,
       `tests/test_stage1_logic.py`. 판단층(순수)↔구동층(ev3dev2) 분리, params 6개, reason 4종. [claude]
-- [ ] **실기 검증(Stage 1 Done 조건)**: 아래 "실기 검증 필요" 항목. SSH 터널 띄우고 보정①②③.
+- [ ] **실기 검증(Stage 1 Done 조건)**: 센서 기준값 1차 확정 완료. PID 보정 + 코스 추종 확인 대기.
 - [ ] (이후) **Stage 2 는 Stage 1 실기 Done 후에만 착수.** ⚠️ 1~7 일괄 작성 금지(AGENTS.md 1절).
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
@@ -63,22 +63,32 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 1. **인프라 통합 동작**: 브릭에서 `python3 stages/stage1_linetrace.py` 실행 → 노트북에서
    `python3 tools/robotctl.py latest` 가 프레임 반환(서버/터널 OK), `set kp 0.85` 반영,
    범위·MAX_STEP 거부 응답, `stop` 으로 정지(EMERGENCY_STOP 이벤트) 확인.
-2. **보정① target_reflect**: 중앙센서 흰바닥/검은선 raw 측정(telemetry `reflect`) →
-   `target_reflect = (흰+검)/2` 로 `set`. 추정 기본 35 는 임시값.
+2. **보정① target_reflect**: 중앙센서 raw 측정 완료. 검은색 `reflect=0`, 흰색 `reflect=10`.
+   실기상 기준값은 `target_reflect=6` 정도가 적당해 보여 기본값에 반영.
 3. **보정② 직진 트림**: 저속 직진 쏠림 보면 `lib/hardware.py` `LEFT/RIGHT_MOTOR_TRIM`
    상수 하나만 미세 조정(라이브 아님, 재배포 1회성).
-4. **보정③ kp/kd**: `kp` 0.1씩 올리며 곡선 추종, 진동하면 내리거나 `kd` 0.05씩. ki 는 0 유지.
+4. **보정③ kp/kd**: 아직 미확정. `base_speed=20` 에서 `kp` 0.1씩 올리며 곡선 추종,
+   진동하면 내리거나 `kd` 0.05씩. ki 는 0 유지.
 5. **미확정값 실기 확정**: 아래 "Stage 1 실기 확정 필요 상수" 표.
 6. **Done**: 직선+곡선 코스 끝까지 추종 + `robotctl stop`/Ctrl-C 정지. 확정 params `robotctl save`.
 
 | 미확정 상수/부호 | 위치 | 현재값 | 확정 방법 |
 |---|---|---|---|
 | 조향 부호(`to_wheel_speeds` base∓turn) | stage1 §11 | `base-turn / base+turn` | 선 한쪽 치우칠 때 복귀 방향 보고 부호/좌우 확정 |
-| `LINE_LOST_MARGIN` | stage1 상수 | 25 | 자꾸 LOST 오판하면 ↑, 늦게 잡으면 ↓ |
+| `LINE_LOST_MARGIN` | stage1 상수 | 25 | 현재 흰색 reflect=10 / target=6 기준으로는 유실 판정이 거의 안 뜸. 필요 시 별도 한 변수로 검증 |
 | `RECOVER_SPEED`(유실 시 거동) | stage1 상수 | 0(정지) | 정지 vs 저속 직진 중 실기 선택 |
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — Stage 1 센서 기준값 1차 실측 정리 (Agent: codex)
+- **실기 측정**: 중앙 컬러센서(`in2`) 반사광이 검은색에서 `0`, 흰색에서 `10`으로 관측됨.
+- **반영값**: `target_reflect=6` 정도가 적당해 보여 Stage 1 초기값에 반영. 기본 주행 속도는
+  `base_speed=20`으로 반영.
+- **미확정**: `kp`/`kd` 등 PID 보정값은 추후 실기에서 결정. 현재 `LINE_LOST_MARGIN=25`는
+  반사광 범위(0~10)에 비해 커서 유실 판정에는 맞지 않을 수 있으나, 이번에는 값 하나씩
+  검증 원칙에 따라 수정하지 않고 TODO 로 남김.
+- **Stage 1 Done 아님**: 직선+곡선 코스 끝까지 추종 및 정지 경로 확인은 아직 남아 있음.
 
 ### 2026-06-30 — Stage 1 기초 라인트레이싱 구현 + 인프라 통합 (Agent: claude)
 - **범위**: Stage 1 만. 회전(Stage2)·노드(Stage3)·색(Stage4)·그리퍼 미구현. 중앙센서 in2 1개.

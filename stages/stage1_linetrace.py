@@ -44,9 +44,9 @@ INITIAL_PARAMS = {
     "kp": 0.75,
     "ki": 0.0,
     "kd": 0.06,
-    "base_speed": 22,
+    "base_speed": 20,
     "turn_limit": 35,
-    "target_reflect": 35,
+    "target_reflect": 6,
 }
 
 PARAM_LIMITS = {

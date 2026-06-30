@@ -59,7 +59,7 @@ io.sense_exits()        -> ({"L":bool,"S":bool,"R":bool}, cross_bool)  # 출구 
 io.turn(token)          -> None             # token = LEFT/STRAIGHT/RIGHT/UTURN, 라인 재포착
 io.read_node_color()    -> int              # 노드 색 코드(0~7), 막다른 길에서만
 io.finish(label)        -> None
-io.abort_requested()    -> bool             # BACK 버튼 (구동층이 매 루프 확인)
+io.stop_requested()     -> bool             # 네트워크 stop/watchdog 정지 플래그
 ```
 > 이 시그니처는 이전 `Ev3Motion` 에서 인용한 것이다. Stage 5 의 실제 메서드명/반환형이
 > 다르면 **Stage 5 쪽 이름에 맞추고**, 어긋난 부분은 11절에 적는다(추측 금지).
@@ -166,7 +166,7 @@ classify_leaf_color(color, params) -> reason_code
 ## 5. 동작 로직 (의사코드)
 
 > EV3 브릭 코드는 **Python 3.5 안전**(f-string 금지, `.format()`). 아래는 의사코드.
-> BACK 버튼 정지는 구동층 `io` 가 매 루프 책임진다(Stage 1~5 에서 이미 보장).
+> 정지 플래그 확인은 구동층 `io` 가 매 루프 책임진다(Stage 1~5 에서 이미 보장).
 > 네트워크 비차단(snapshot)은 인프라([00_infra_dashboard.md](00_infra_dashboard.md))가 담당.
 
 ### 5-1. 순수 판단층 — 출구 선택 (replay 의 대상)
@@ -274,8 +274,9 @@ def return_run(path):
 > ALGORITHM.md 5장 인용). 단, 도착 정렬 가정에 주의 — 8절.
 
 ### 5-4. 안전
-- **BACK 버튼**: 구동층 `io.abort_requested()` 가 매 루프 확인 → 즉시 정지(인용 골격은
+- **정지 플래그**: 구동층 `io.stop_requested()` 가 매 루프 확인 → 즉시 정지(인용 골격은
   `Aborted` 예외로 위로 전달). 본 단계 코드는 이를 잡아 `io.finish` 후 종료.
+  BACK 버튼은 프로그램 입력으로 할당하지 않는다.
 - **watchdog / overflow**: `explore_watchdog_s` 초간 새 노드 없거나 `max_path_len`
   초과면 안전정지 + reason 로그. 무한 재귀/제자리 맴돔 방지(이전 구현엔 없던 보강).
 
@@ -358,7 +359,7 @@ def return_run(path):
 - [ ] reason_code 카탈로그([DECISIONS.md](../DECISIONS.md))에 4절 항목 추가.
 - [ ] `tests/sim_explore.py` 작성(가짜 미로 + SimMotion), 단위+통합 검사 PASS.
 - [ ] `stages/stage6_explore_return.py` 진입점: params/telemetry 노출, EXPLORE→RETURN,
-      watchdog/overflow 안전정지, BACK 정지.
+      watchdog/overflow 안전정지, 네트워크 stop.
 - [ ] `do explore` / `do return` / `do read_color` 트리거 연동.
 - [ ] `python3 -m py_compile` 통과 확인.
 - [ ] (실기) 색 3개 확정 → EXPLORE 전노드 방문 → RETURN 출발 복귀. PROGRESS.md 기록.
@@ -373,8 +374,7 @@ def return_run(path):
 >   (코너/T/십자/잎)도 함께 구조체로 저장**하고, 복귀 주행에서 만나는 노드 패턴이 계획과
 >   일치하는지 **검증**한다. 어긋나면 즉시 `EMERGENCY_STOP`. (이전 프로젝트가 여기서 고생.)
 > - **#5 재귀 대신 명시 스택**: `explore_junction` 재귀 호출 대신 `stack=[]` + `while` 상태
->   머신으로. 임베디드에서 BACK 예외 탈출 시 자원(모터·소켓) 해제가 단순해진다(BACK 즉시
->   정지는 이미 1차 규칙이라 "폭주" 위험 자체는 그것으로 1차 차단됨).
+>   머신으로. 임베디드에서 stop/watchdog 탈출 시 자원(모터·소켓) 해제가 단순해진다.
 
 - **Stage 5 io 인터페이스 정확한 이름/반환형**: 본 명세는 이전 `Ev3Motion` 에서 인용했다.
   실제 Stage 5 구현의 메서드명·`Arrival` 형태·`sense_exits` 반환을 확인해 맞춰야 한다.

@@ -65,8 +65,8 @@ ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local
    EV3는 소켓으로 `latest`만 흘려보내고, 노트북 watcher가 `runs/current/telemetry.jsonl` 기록.
 5. **회전은 시간보다 엔코더 각도.** `turn_90_ms` 같은 시간기반은 배터리/마찰에 가장 크게
    흔들린다. `on_for_degrees` + **보정계수 하나**를 live param으로 둔다(Stage 2).
-6. **BACK 버튼 정지가 항상 최우선**, 네트워크와 독립. `emergency_stop`(네트워크)은 보조.
-   옵션으로 "N초간 명령/연결 없으면 안전정지" watchdog을 *토글 가능*하게(모드별 선택).
+6. **BACK 버튼은 프로그램 입력으로 할당하지 않는다.** ev3dev 기본 종료 동작으로 남기고,
+   `robotctl stop` 같은 네트워크 정지와 필요 시 watchdog 안전정지를 쓴다.
 7. **파라미터 의미를 섞지 않는다.** `target_reflect`(중앙 1센서 PID)와
    `black/white_threshold`(3센서 노드 bits)는 다른 단계 것. 단계별로 *필요한 것만* 노출한다.
 
@@ -94,10 +94,10 @@ PARAM_LIMITS = {
 MAX_STEP = {"kp": 0.1, "ki": 0.02, "kd": 0.05, "base_speed": 5, "turn_limit": 10}
 ```
 
-### emergency stop은 항상 가능
+### stop은 항상 가능
 ```bash
-python tools/robotctl.py stop          # 네트워크 정지(보조)
-# 브릭 BACK 버튼 = 1차 정지(항상 동작)
+python tools/robotctl.py stop          # 네트워크 정지
+# BACK 버튼은 프로그램 입력으로 할당하지 않는다.
 ```
 
 ### live vs saved 분리

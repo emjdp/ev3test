@@ -1,6 +1,6 @@
 # Stage 0 — 연결/포트 확인 구현 명세
 
-> 상태: DRAFT (실기 미검증)
+> 상태: REVIEWED (구현·실기 확인 완료, 결과는 PROGRESS.md)
 > 선행: 없음 (첫 단계). 네트워크/튜닝 인프라 없음(plain).
 > 통과기준(Done): [STAGES.md](../STAGES.md) Stage 0 인용 —
 > "7개 장치가 모두 기대한 포트에서 에러 없이 열리고 값이 읽힌다.
@@ -14,7 +14,8 @@
   - 각 센서의 현재 값을 한 번씩 읽어 화면/콘솔에 출력한다(살아있는지 확인).
   - **EV3 Python 버전을 확정**한다(`python3 --version`). 이후 모든 브릭 코드 규약의 전제다.
   - 좌/우 주행 모터를 **아주 짧게 저속**으로 돌려 방향이 코드 기대와 맞는지 눈으로 확인.
-  - BACK 버튼으로 언제든 즉시 중단.
+  - BACK 버튼은 프로그램 입력으로 할당하지 않는다. 방향 확인은 ENTER 로 시작하고,
+    입력이 없으면 자동 스킵한다.
 - **안 하는 것 (다음 단계로)**
   - 라인추종/PID 없음(Stage 1).
   - 라이브 튜닝 서버·telemetry·reason 로깅 없음(Stage 1에서 인프라 최초 도입).
@@ -32,7 +33,7 @@
   - `probe_motor(cls, port) -> (ok, detail)` — 모터 1개 열기 시도, 성공/예외 메시지.
   - `probe_sensor(cls, port, read) -> (ok, value_or_detail)` — 센서 1개 열기 + 값 1회 읽기.
   - `nudge_drive(left_motor, right_motor, speed, ms)` — 좌/우 모터 짧게 저속 구동(방향 확인).
-  - `back_pressed(button) -> bool` — BACK 즉시 정지 체크.
+  - `wait_for_enter(button, timeout_s) -> bool` — ENTER 대기, timeout 이 지나면 스킵.
 
 ## 3. 라이브 params (6개 이하)
 
@@ -104,32 +105,37 @@ def main():
         except Exception as exc:
             print("{} {} FAIL: {}".format(port, label, exc))
 
-    # --- 3) 좌/우 모터 방향 확인 (짧게 저속, BACK 으로 중단 가능) ---
+    # --- 3) 좌/우 모터 방향 확인 (짧게 저속) ---
     if "outA" in opened and "outB" in opened:
         print("forward nudge: 두 바퀴가 같은 '전진' 방향인지 보세요")
-        if not back_pressed(button):
+        if wait_for_enter(button, START_WAIT_S):
             opened["outA"].on(SpeedPercent(NUDGE_SPEED))   # 좌=전진(+)
             opened["outB"].on(SpeedPercent(NUDGE_SPEED))   # 우=전진(+)
-            wait_ms_or_back(button, NUDGE_MS)
+            wait_ms(NUDGE_MS)
         opened["outA"].off(brake=True)
         opened["outB"].off(brake=True)
         time.sleep(0.1)   # settle (관성)
 
     print("DONE. 위 결과를 PROGRESS.md 에 적으세요.")
 
-def back_pressed(button):
-    return bool(button.backspace)   # BACK = 즉시 정지/중단 (최우선)
-
-def wait_ms_or_back(button, ms):
-    # ms 동안 대기하되 BACK 누르면 즉시 빠져나온다
+def wait_ms(ms):
+    # ms 동안 짧게 대기한다
     end = time.time() + ms / 1000.0
     while time.time() < end:
-        if back_pressed(button):
-            break
         time.sleep(0.01)
+
+def wait_for_enter(button, timeout_s):
+    # ENTER 를 기다리고 timeout 이 지나면 스킵한다
+    end = time.time() + timeout_s
+    while time.time() < end:
+        if button.enter:
+            return True
+        time.sleep(0.02)
+    return False
 ```
 
-- **BACK 즉시 정지**: 구동 구간 진입 전 1회 + 대기 루프 안에서 매 10ms 체크. 누르면 즉시 off.
+- **BACK 미할당**: BACK 버튼은 ev3dev 기본 종료 동작으로 남기고, 프로그램의
+  stop/skip/abort 입력으로 쓰지 않는다.
 - 네트워크 비차단: 해당 없음(네트워크 자체가 없음).
 - 모터/센서 열기는 각각 try/except 로 감싸 **하나가 실패해도 나머지를 계속 점검**한다
   (한 포트 빠졌다고 전체가 죽지 않게).
@@ -137,7 +143,7 @@ def wait_ms_or_back(button, ms):
 ## 6. 대시보드 / CLI 연동
 
 - **없음.** Stage 0 은 plain 실행이라 `robotctl`/대시보드와 연동하지 않는다.
-- 유일한 입력은 브릭 버튼(ENTER 로 시작 대기 — 선택, BACK 으로 중단).
+- 유일한 입력은 브릭 ENTER 버튼(방향 확인 시작)이다. 입력이 없으면 자동 스킵한다.
 - 인프라/대시보드는 Stage 1에서 처음 등장한다 → [00_infra_dashboard.md](00_infra_dashboard.md)
   (작성 예정), [LIVE_TUNING.md](../LIVE_TUNING.md).
 
@@ -181,7 +187,7 @@ Stage 0 은 "튜닝"이 아니라 "확인"이다. 순서:
 - [ ] `stages/stage0_check.py` 작성(위 의사코드 기반, Python 3.5 안전).
 - [ ] ev3dev2 import 를 함수 안/try-except 로 감싸 PC py_compile 통과 확인.
 - [ ] 모터 3개·센서 4개 probe + 값 출력 구현.
-- [ ] forward nudge(15%, 400ms) + BACK 즉시 정지 구현.
+- [ ] forward nudge(15%, 400ms) + ENTER 시작 대기/timeout 스킵 구현.
 - [ ] `python3 -m py_compile stages/stage0_check.py` 통과.
 - [ ] **실기 실행** → `python3 --version` 결과를 PROGRESS.md 에 기록(3.5 여부 확정).
 - [ ] 7개 포트 OK + 센서값 sanity + 좌/우 방향을 PROGRESS.md 에 기록.

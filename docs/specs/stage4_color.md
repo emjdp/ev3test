@@ -135,7 +135,7 @@ read_node_color_at_rest(params) -> (color, reflect)
 ## 5. 동작 로직 (의사코드)
 
 > EV3(브릭) 코드는 **Python 3.5 안전**: f-string 금지, `.format()` 사용. 네트워크
-> 비차단(snapshot) · BACK 즉시정지는 인프라([00_infra_dashboard.md](00_infra_dashboard.md))를 따른다.
+> 비차단(snapshot) · 네트워크 stop 처리는 인프라([00_infra_dashboard.md](00_infra_dashboard.md))를 따른다.
 
 ### 판단층 (순수)
 
@@ -180,7 +180,7 @@ def read_node_color_at_rest(hw, params, telem):
     confirmer = ColorConfirmer(params["color_confirm_samples"])
     color = None
     while color is None:
-        if back_button_pressed(): raise Aborted   # BACK 최우선
+        if stop_requested(): raise Aborted
         c = hw.read_center_color(params["color_mode_settle_s"],
                                  params["color_dummy_reads"])
         color = confirmer.push(c)
@@ -201,7 +201,7 @@ def read_node_color_at_rest(hw, params, telem):
 def stage4_loop(params, hw, telem, events):
     # Stage 1 라인추종 + Stage 3 노드 감지를 그대로 돌린다(코드 재사용).
     while True:
-        if back_button_pressed(): stop(); return        # BACK 최우선
+        if stop_requested(): stop(); return
         arr = follow_to_node()        # Stage1+Stage3: 노드에서 멈추고 bits/dist_mm 확정
         # ---- 색 읽기 위치 결정 (실패 #2) ----
         if params["read_color_position"] == "after_advance":
@@ -319,7 +319,7 @@ def stage4_loop(params, hw, telem, events):
       `COLOR_READ`/`COLOR_FLOOR_WARN`/`NODE_IS_*` 이벤트 로깅.
 - [ ] 라이브 params 6개 + PARAM_LIMITS + MAX_STEP 등록, config/ 에 나머지 값.
 - [ ] `do read_color` 트리거 연결, telemetry 키(`color`,`color_reflect`,`dist_since_node_mm`).
-- [ ] BACK 즉시정지·네트워크 비차단 확인.
+- [ ] 네트워크 stop·네트워크 비차단 확인.
 - [ ] `python3 -m py_compile` + 판단함수 단위테스트 + replay 시나리오 통과.
 - [ ] 7절 보정으로 실기 Done, [../../PROGRESS.md](../../PROGRESS.md) 기록.
 

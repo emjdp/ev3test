@@ -11,7 +11,7 @@
 
 규약: 브릭에서 도는 코드는 Python 3.5 안전 — f-string 금지, .format() 사용.
 ev3dev2 import 는 main() 안에서 한다(PC 에는 ev3dev2 가 없으므로 py_compile 안전).
-BACK 버튼은 언제나 즉시 중단(최우선).
+BACK 버튼은 ev3dev 기본 종료 동작으로 남기고, 프로그램 입력으로 할당하지 않는다.
 
 자세한 명세: docs/specs/stage0_connection.md
 """
@@ -22,21 +22,7 @@ import time
 # --- 파일 맨 위 상수 (live param 아님; Stage 0 은 라이브 튜닝 인프라 이전) ---
 NUDGE_SPEED = 15   # 방향 확인용 구동 속도(%). HARDWARE.md "첫 실행 15~20%".
 NUDGE_MS = 400     # 방향 확인 구동 시간(ms). 아주 짧게.
-
-
-def back_pressed(button):
-    """BACK 버튼 = 즉시 정지/중단 (최우선)."""
-    return bool(button.backspace)
-
-
-def wait_ms_or_back(button, ms):
-    """ms 동안 대기하되 BACK 누르면 즉시 빠져나온다. BACK 눌렀으면 True 반환."""
-    end = time.time() + ms / 1000.0
-    while time.time() < end:
-        if back_pressed(button):
-            return True
-        time.sleep(0.01)
-    return False
+START_WAIT_S = 20  # 방향 확인 시작 대기. ENTER 없으면 자동 스킵.
 
 
 def probe_motor(cls, port, label):
@@ -63,17 +49,32 @@ def probe_sensor(cls, port, label, read):
         return False, "{} {} FAIL: {}".format(port, label, exc)
 
 
-def nudge_drive(left_motor, right_motor, speed_percent_cls, speed, ms, button):
+def wait_ms(ms):
+    """ms 동안 짧게 대기한다."""
+    end = time.time() + ms / 1000.0
+    while time.time() < end:
+        time.sleep(0.01)
+
+
+def wait_for_enter(button, timeout_s):
+    """ENTER 를 기다린다. timeout 이 지나면 False 반환."""
+    end = time.time() + timeout_s
+    while time.time() < end:
+        if button.enter:
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def nudge_drive(left_motor, right_motor, speed_percent_cls, speed, ms):
     """좌/우 모터를 짧게 저속으로 같은 방향(전진)으로 돌려 방향을 눈으로 확인.
 
-    BACK 을 누르면 즉시 멈춘다. 마지막엔 항상 브레이크로 정지하고 관성 settle.
+    마지막엔 항상 브레이크로 정지하고 관성 settle.
     """
-    if back_pressed(button):
-        return
     left_motor.on(speed_percent_cls(speed))    # 좌 = 전진(+)
     right_motor.on(speed_percent_cls(speed))   # 우 = 전진(+)
     try:
-        wait_ms_or_back(button, ms)
+        wait_ms(ms)
     finally:
         left_motor.off(brake=True)
         right_motor.off(brake=True)
@@ -128,25 +129,16 @@ def main():
         else:
             fail_count += 1
 
-    # --- 3) 좌/우 모터 방향 확인 (짧게 저속, BACK 으로 중단) ---
+    # --- 3) 좌/우 모터 방향 확인 (짧게 저속) ---
     print("--- Direction Check ---")
     if "outA" in opened and "outB" in opened:
         print("forward nudge: Check if both wheels rotate forward.")
-        print("(Recommend lifting wheels) ENTER=Run, BACK=Skip")
-        # 모터가 갑자기 돌지 않게 시작 전 확인 대기. BACK 이면 건너뛴다.
-        skipped = False
-        while True:
-            if back_pressed(button):
-                skipped = True
-                break
-            if button.enter:
-                break
-            time.sleep(0.02)
-        if not skipped:
+        print("(Recommend lifting wheels) ENTER=Run, no input={}s Skip".format(START_WAIT_S))
+        if wait_for_enter(button, START_WAIT_S):
             nudge_drive(opened["outA"], opened["outB"], SpeedPercent,
-                        NUDGE_SPEED, NUDGE_MS, button)
+                        NUDGE_SPEED, NUDGE_MS)
         else:
-            print("Direction check skipped (BACK).")
+            print("Direction check skipped (timeout).")
     else:
         print("OutA/OutB not opened, skipping direction check.")
 

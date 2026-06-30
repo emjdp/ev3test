@@ -84,7 +84,7 @@ def target_degrees(action, params):
 def pivot(hw, action, target_deg, turn_speed):
     """엔코더 각도 기준 제자리 회전. action 으로 좌/우/방향 결정.
        하드웨어(hw)의 좌/우 모터를 반대 방향으로 같은 각도만큼 돌린다.
-       BACK 버튼 즉시 정지 포함. 반환: 실제 회전한 평균 엔코더 각도(검증용)."""
+       stop 플래그 확인 포함. 반환: 실제 회전한 평균 엔코더 각도(검증용)."""
 ```
 
 > 분리 이유([DECISIONS.md](../DECISIONS.md) 0장): 판단 버그("엉뚱한 회전을 골랐다")와
@@ -152,7 +152,7 @@ MAX_STEP = {
 | `TURN_LEFT` | 좌90 회전 시작 | `node_id`(미정 시 null), `available_exits`(Stage2 미사용), `selected:"LEFT"`, `rule:"DO_TRIGGER"`, `target_deg`, `factor`, `turn_speed` |
 | `TURN_RIGHT` | 우90 회전 시작 | 위와 동일(`selected:"RIGHT"`) |
 | `UTURN` | U턴 시작 | 위와 동일(`selected:"UTURN"`, `factor:turn_180_factor`) |
-| `EMERGENCY_STOP` | BACK 또는 네트워크 stop | `source:"BACK"|"NET"` |
+| `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | `source:"NET"|"WATCHDOG"` |
 
 > 회전 **종료**는 별도 reason_code 를 새로 만들지 않는다. 대신 같은 이벤트에 회전 후
 > `enc_avg`(실제 돈 각도)를 detail 로 덧붙이거나, 다음 telemetry 틱의 `enc_avg` 로 본다.
@@ -175,8 +175,8 @@ def main():
     log = ReasonLogger()                    # events 소켓 전송
 
     while True:
-        if hw.abort_requested():            # BACK = 1차 정지(항상 최우선)
-            hw.stop(); log.event("EMERGENCY_STOP", source="BACK"); break
+        if server.stop_requested():
+            hw.stop(); log.event("EMERGENCY_STOP", source="NET"); break
         cmd = server.take_pending_do()      # 'turn_left'|'turn_right'|'uturn'|None
         if cmd is not None:
             run_turn(hw, cmd, params, log, server)
@@ -185,7 +185,7 @@ def main():
 ```
 
 > Stage 2는 라인트레이싱처럼 *연속 제어*가 아니라 **트리거 대기 → 회전 1회** 구조다.
-> 그래도 telemetry/BACK/네트워크 비차단 규칙은 동일하게 지킨다.
+> 그래도 telemetry/네트워크 비차단/stop 플래그 확인 규칙은 동일하게 지킨다.
 
 ### 5.2 회전 1회 (판단 → 구동)
 
@@ -195,7 +195,7 @@ def run_turn(hw, cmd, params, log, server):
     action, reason, detail = decide_turn(cmd, snap, state={})   # 판단층(순수)
     log.event(reason, **detail)              # TURN_LEFT/RIGHT/UTURN + 이유/목표각
     target = detail["target_deg"]
-    actual = pivot(hw, action, target, snap["turn_speed"], hw_abort=hw.abort_requested)
+    actual = pivot(hw, action, target, snap["turn_speed"], should_stop=server.stop_requested)
     if snap["post_turn_settle_ms"]:
         sleep(snap["post_turn_settle_ms"] / 1000.0)
     push_telemetry(server, enc_avg=actual, target_deg=target, turning=False)
@@ -205,13 +205,13 @@ def run_turn(hw, cmd, params, log, server):
 ### 5.3 엔코더 각도 회전 (구동층, lib/turns.py)
 
 ```python
-def pivot(hw, action, target_deg, turn_speed, hw_abort):
+def pivot(hw, action, target_deg, turn_speed, should_stop):
     # 좌회전: 왼바퀴 후진 / 오른바퀴 전진.  우회전: 반대.  U턴: 우회전과 같은 방향(또는 약속).
     left_dir, right_dir = _dirs(action)      # {'LEFT90':(-1,+1), 'RIGHT90':(+1,-1), 'UTURN180':(+1,-1)}
     hw.reset_encoders()                      # enc_l=enc_r=0
     hw.drive(left_dir * turn_speed, right_dir * turn_speed, apply_trim=False)  # 회전엔 트림 X
     while True:
-        if hw_abort():                       # BACK 즉시 정지
+        if should_stop():                    # 네트워크 stop/watchdog 정지
             break
         el, er = hw.read_encoders()          # 누적 각도(도)
         if (abs(el) + abs(er)) / 2.0 >= target_deg:
@@ -227,8 +227,8 @@ def pivot(hw, action, target_deg, turn_speed, hw_abort):
 > ([LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 5). **남는 변수는 보정계수 하나**라
 > 라이브로 그것만 만지면 된다.
 >
-> `on_for_degrees` 를 쓸지 직접 루프로 엔코더를 폴링할지: 직접 폴링이 **BACK 즉시 정지**와
-> **실시간 telemetry** 에 유리(블로킹 호출 중엔 BACK 을 못 본다). 기본은 위처럼 폴링 루프.
+> `on_for_degrees` 를 쓸지 직접 루프로 엔코더를 폴링할지: 직접 폴링이 **stop 플래그 반응**과
+> **실시간 telemetry** 에 유리(블로킹 호출 중엔 정지 명령을 못 본다). 기본은 위처럼 폴링 루프.
 > 11절 참조.
 
 ---
@@ -244,7 +244,7 @@ python tools/robotctl.py do uturn          # U턴 1회 (UTURN 로그)
 python tools/robotctl.py set turn_90_factor 1.05
 python tools/robotctl.py set turn_180_factor 1.10
 python tools/robotctl.py set turn_speed 16
-python tools/robotctl.py stop              # 네트워크 정지(보조; BACK 이 1차)
+python tools/robotctl.py stop              # 네트워크 정지
 python tools/robotctl.py save              # config/stage2.json 으로 검증값 저장
 python tools/robotctl.py rollback          # 마지막 저장값 복귀
 ```
@@ -311,7 +311,7 @@ python tools/robotctl.py rollback          # 마지막 저장값 복귀
 - [ ] `lib/hardware.py` 에 `reset_encoders()`, `read_encoders() -> (deg_l, deg_r)` 추가
       (Stage 1 의 `drive`/`stop` 은 수정 없이 재사용).
 - [ ] `lib/decide_turn.py`: `decide_turn`, `target_degrees` 순수 함수 작성(ev3dev2 import 금지).
-- [ ] `lib/turns.py`: `pivot()` 엔코더 폴링 회전 + BACK 즉시 정지.
+- [ ] `lib/turns.py`: `pivot()` 엔코더 폴링 회전 + stop 플래그 확인.
 - [ ] `stages/stage2_turns.py`: 초기 params/PARAM_LIMITS/MAX_STEP 상수, 대기 루프, `run_turn`.
 - [ ] `tools/robotctl.py` 에 `do turn_left/turn_right/uturn` 액션 등록(인프라 명세).
 - [ ] reason_code `TURN_LEFT/RIGHT/UTURN` 을 events 로 전송(detail 포함).
@@ -330,7 +330,7 @@ python tools/robotctl.py rollback          # 마지막 저장값 복귀
   (이전 로봇은 시간기반이라 이 값이 없다 — 참고 불가.)
 - **좌/우 보정계수 통합 vs 분리**: 기본은 `turn_90_factor` 하나. 실기에서 좌/우 오차가 계속
   다른 방향이면 `turn_90_left_factor`/`turn_90_right_factor` 로 분리(라이브 5개, 6 이하 유지).
-- **`on_for_degrees` vs 폴링 루프**: 본 명세는 BACK 즉시정지/telemetry 위해 폴링을 기본으로
+- **`on_for_degrees` vs 폴링 루프**: 본 명세는 stop 플래그 반응/telemetry 위해 폴링을 기본으로
   잡았다. `on_for_degrees(brake=True)` 가 정확도/관성에서 더 나은지는 실기 비교 필요.
 - **회전 방향 부호 약속**: 좌회전=왼바퀴 후진/오른바퀴 전진으로 가정. 실기에서 모터 극성·
   배선과 맞는지 Stage 0 결과로 확정(반대면 `_dirs` 부호만 뒤집음).

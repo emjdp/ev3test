@@ -5,14 +5,14 @@
 
 ## 현재 단계
 
-**Stage 0 — 연결/포트 확인** (코드 작성됨, 실기 검증 대기)
+**Stage 1 — 기초 라인트레이싱 준비** (Stage 0 실기 Done, Stage 1 착수 전)
 
 ## 단계 상태판
 
 | 단계 | 상태 | 비고 |
 |---|---|---|
-| Stage 0 연결/포트 확인 | 🟡 진행 중 | 코드 작성·py_compile 통과, 실기 검증 필요 |
-| Stage 1 기초 라인트레이싱 | ⬜ 시작 전 | |
+| Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
+| Stage 1 기초 라인트레이싱 | ⬜ 시작 전 | 다음 착수 단계 |
 | Stage 2 원시 회전(좌/우/U) | ⬜ 시작 전 | |
 | Stage 3 노드 감지 | ⬜ 시작 전 | |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
@@ -39,9 +39,10 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 ## TODO (다음 할 일)
 
 - [x] **Stage 0 스크립트 작성**: `stages/stage0_check.py` (py_compile 통과, f-string 없음). [claude]
-- [ ] **실기에서 Stage 0 실행** (`python3 stages/stage0_check.py`):
-      ① `python` 버전 → PROGRESS 기록(3.5 여부 확정) ② 7개 포트 OK + 센서값 sanity
-      ③ 좌/우 모터 방향(기대와 다르면 "다름"만 기록, 수정은 Stage 1). → Done 이면 🟢.
+- [x] **실기에서 Stage 0 실행** (`python3 stages/stage0_check.py`):
+      Python 3.5.3 확정. outA/outB/outC OK, in2/in3/in4 OK. `in1` 은 두 번 모두
+      `ColorSensor(in1) is not connected` 로 출력됐으나 사용자가 포트 이상 없음으로 판단해
+      Stage 0 통과 처리. 좌/우 전진 방향 정상.
 - [x] **인프라 MVP 빌드 — codex 담당.** 스테이지가 아닌 공용 도구라 지금 만들 수
       있다. 명세: [00_infra_dashboard.md](docs/specs/00_infra_dashboard.md) (REVIEWED).
       - 완료(하드웨어 무관, PC 검증): `lib/` shared_params·telemetry·decision_log·
@@ -58,6 +59,18 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — Stage0 실기 Done 확정 + BACK 버튼 정책 변경 (Agent: codex)
+- 브릭에서 `python3 stages/stage0_check.py` 실행 결과 Python `3.5.3` 확인. 이후 브릭 실행
+  코드는 Python 3.5 안전 문법(`.format()`, f-string 금지)을 유지한다.
+- 모터: `outA` 좌 주행 라지 모터 OK, `outB` 우 주행 라지 모터 OK, `outC` 그리퍼 미디엄 모터 OK.
+- 센서: `in2` 중앙 컬러센서 OK(value 6~7), `in3` 오른쪽 컬러센서 OK(value 7~8),
+  `in4` 초음파 OK(약 6.3~9.9cm). `in1` 왼쪽 컬러센서는 실행 로그상 미연결 FAIL 이었지만,
+  사용자가 실물 확인 후 "포트 이상 없음, 실패는 무시 가능"으로 판단해 Stage 0 Done 처리.
+- 방향 확인: 좌/우 주행 모터 전진 방향 정상.
+- 정책 변경: EV3 BACK 버튼은 어느 프로그램에서든 종료 버튼처럼 동작하므로 앞으로
+  stop/skip/abort 입력으로 할당하지 않는다. 정지는 `robotctl stop`/키보드 인터럽트/필요 시
+  별도 안전 입력으로 처리한다.
 
 ### 2026-06-30 — 실기 주행 준비 및 단계별 보정 가이드라인 보고서 작성 (Agent: antigravity)
 - 내일 아침 9시부터 실기 테스트 및 구현을 즉시 시작할 수 있는 종합 가이드라인 [tomorrow_morning_guide.md](file:///home/emjdp/.gemini/antigravity/brain/8a7d13ee-e3fd-4744-bcfb-f1f7101d7367/tomorrow_morning_guide.md) 작성 완료.
@@ -120,7 +133,7 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 ### 2026-06-29 — Stage 0 스크립트 구현 (Agent: claude)
 - `stages/stage0_check.py` 작성(명세 docs/specs/stage0_connection.md 기반).
 - 모터3(outA/outB/outC)·센서4(in1~in4) 포트 probe + 값 1회 읽기, 좌/우 forward nudge
-  (15%/400ms, ENTER 로 시작·BACK 즉시중단), python 버전 출력, OK/FAIL 요약.
+  (15%/400ms, ENTER 로 시작), python 버전 출력, OK/FAIL 요약.
 - Python 3.5 안전(f-string 없음, .format()), ev3dev2 는 main() 안 import → PC py_compile 통과.
 - 한 포트 실패해도 나머지 계속 점검(try/except per device). position 읽기 예외도 감쌈.
 - **실기 검증 필요**: 브릭에서 실행해 버전·7포트·방향 확인 후 PROGRESS 기록 → Done.
@@ -172,7 +185,8 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - "EV3=주행 / 노트북=관제소" 라이브 튜닝 구조를 검토·확정해 문서에 반영(코드는 아직).
 - 새 문서 [docs/LIVE_TUNING.md](docs/LIVE_TUNING.md): 서버/CLI/telemetry/안전장치/빌드순서/
   에이전트 워크플로우. 핵심 결정: 제어루프↔네트워크 분리, threaded accept, dt 측정,
-  telemetry 파일쓰기는 노트북, 회전은 엔코더+보정계수, BACK 1차 정지, 에이전트는 제안만.
+  telemetry 파일쓰기는 노트북, 회전은 엔코더+보정계수, 에이전트는 제안만.
+  (2026-06-30 이후 BACK 버튼은 프로그램 입력으로 할당하지 않는 정책으로 변경.)
 - README/STAGES/AGENTS 갱신: 라이브 튜닝을 "스테이지가 아닌 공용 도구"로 못박고
   단계와 함께 자라게. 목표 디렉토리(lib/tools/config/runs/dashboard) 반영. `runs/` gitignore.
 - **다음**: Stage 0 스크립트(여전히 plain 연결확인, 네트워크 없음).

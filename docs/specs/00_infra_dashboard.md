@@ -183,7 +183,7 @@ max_step = {"kp": 0.1, "kd": 0.05, "base_speed": 5, ...}
 
 | reason_code | 언제 | detail |
 |---|---|---|
-| `EMERGENCY_STOP` | BACK 버튼 또는 네트워크 stop | `source`("back"/"network"/"watchdog") |
+| `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | `source`("network"/"watchdog") |
 
 > 스테이지가 새 판단을 추가할 때마다 DECISIONS.md 카탈로그에 1줄 추가하고, 그 event 를
 > `DecisionLog.log()` 로 남긴다. 인프라는 그것을 sink(소켓)로 흘려보내기만 한다.
@@ -194,7 +194,7 @@ max_step = {"kp": 0.1, "kd": 0.05, "base_speed": 5, ...}
 
 ### 5.1 제어 루프 골격 (`stages/stageN_*.py`, 브릭 — 3.5 안전)
 > **절대 규칙**: 네트워크 I/O 가 이 루프를 한 순간도 블록하지 않는다(snapshot 패턴).
-> BACK 버튼 정지가 항상 최우선, 네트워크와 독립([LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 6).
+> BACK 버튼은 프로그램 입력으로 할당하지 않는다([LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 6).
 
 ```text
 # stages/stageN_*.py (Python 3.5 안전: .format() 사용)
@@ -216,17 +216,14 @@ server.start()                   # accept thread (데몬)
 
 last = monotonic()
 while True:
-    # (1) BACK 버튼 = 1차 정지 (항상, 네트워크와 무관)
-    if hw.abort_requested():
-        hw.stop(); log.log("EMERGENCY_STOP", "BACK_BUTTON", source="back"); break
-    # (2) 네트워크 stop = 보조
+    # (1) 네트워크 stop/watchdog 정지 플래그
     if stop_flag["on"]:
         hw.stop(); log.log("EMERGENCY_STOP", "NETWORK", source=stop_flag["source"])
         stop_flag["on"] = False
         # 주행 멈춤 상태 유지하되 루프는 계속(다시 do/get 받게)
-    # (3) dt 측정 (가정 금지)
+    # (2) dt 측정 (가정 금지)
     now = monotonic(); dt = now - last; last = now
-    # (4) params 스냅샷 (락 한 번, 이후 네트워크 안 건드림)
+    # (3) params 스냅샷 (락 한 번, 이후 네트워크 안 건드림)
     p = params.snapshot()
     # (5) 센서 읽기 -> 판단층(pure) -> 구동
     sensors = hw.read_sensors()
@@ -404,7 +401,7 @@ python tools/robotctl.py describe        # stage/params/actions 메타 확인
 키맵 (명세 — actions 키는 `describe` 의 actions 로 **자동 배정**, 하드코딩 X):
 | 키 | 동작 | 비고 |
 |---|---|---|
-| `s` | **STOP** (`stop`) | 네트워크 정지 보조. BACK 버튼이 1차 정지 |
+| `s` | **STOP** (`stop`) | 네트워크 정지 |
 | `↑` / `↓` 또는 `Tab` | params 행 선택 | describe 순서대로 |
 | `←` / `-` | 선택 param **감소**(`set name value-step`) | UI `step` 만큼(coarse 면 ×5) |
 | `→` / `+` | 선택 param **증가**(`set name value+step`) | 거부(범위/max_step)되면 에러 한 줄 표시 |
@@ -419,7 +416,7 @@ python tools/robotctl.py describe        # stage/params/actions 메타 확인
 
 > 회전 튜닝 루프(Stage 2): `1`(좌90) → 각도 보고 → `+`/`-` 로 turn_90_factor 한 칸 → `.`(또는
 > `Space`, `a` 토글 ON 시 자동) 로 다시 좌90. **터미널 타이핑 없이 키만으로** 반복한다.
-> 대시보드 종료(`q`)는 **로봇을 멈추지 않는다**. 멈춤은 `s`(network stop) 또는 브릭 BACK.
+> 대시보드 종료(`q`)는 **로봇을 멈추지 않는다**. 멈춤은 `s`(network stop) 로 한다.
 > 반복 키와 정지 키를 분리해, 회전 보정 중에는 `Space` 를 "마지막 동작 반복"으로 쓴다.
 
 ---
@@ -449,13 +446,13 @@ python tools/robotctl.py describe        # stage/params/actions 메타 확인
 | 네트워크가 제어 루프를 블록 | `set` 보내면 주행이 끊긴다 | snapshot 패턴 위반 — `_dispatch` 가 락 밖에서 무거운 일 하는지, accept 가 단일 thread 인지 점검(기술결정 2). |
 | JSON 한 줄 깨짐으로 서버 죽음 | 한 번 잘못된 입력 후 서버 무응답 | `_handle` 의 try/except 누락 — 파싱 실패는 **에러 응답**으로만 처리, thread 유지(5.3). |
 | 네트워크 끊김 | 터널 죽었는데 로봇 거동 | 로봇은 **마지막 params 로 계속 주행**(set 안 오면 그대로). watchdog 토글 시 N초 무명령이면 안전정지(아래). |
-| BACK 이 안 먹힘 | 네트워크로만 멈추려다 못 멈춤 | BACK 은 네트워크와 **독립**·최우선이어야(5.1 (1)). 루프 맨 앞에서 매 틱 검사하는지 확인. |
+| `s`/`robotctl stop` 이 안 먹힘 | 정지 명령을 보냈는데 계속 주행 | stop_handler, stop_flag, 제어 루프의 정지 플래그 확인 위치 점검. |
 | 값이 튀어 위험 | 한 번에 큰 변화로 폭주 | MAX_STEP 거부 동작 확인(5.2). |
 | telemetry 안 흐름 | 대시보드 빈 화면 | `get_latest` polling 주기/터널/`tele.publish` 호출 위치 점검. |
 
 ### 안전 (반드시)
-- **BACK 버튼 1차 정지**: 항상, 네트워크와 독립. 모든 제어 루프 맨 앞(5.1).
-- **network stop 은 보조**: `stop` 명령 / 대시보드 `s`.
+- **BACK 버튼 미할당**: 프로그램 입력으로 쓰지 않는다. ev3dev 기본 종료 동작으로 남긴다.
+- **network stop**: `stop` 명령 / 대시보드 `s`.
 - **네트워크 끊겨도 안전**: 마지막 params 유지하며 계속 주행(기본) 또는 watchdog 안전정지.
 - **watchdog 토글**: `WATCHDOG_SECONDS`(0 이면 끔). 마지막 명령/연결 후 N초 지나면 `stop`
   (source="watchdog"). 모드별로 켜고 끔([LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 6).

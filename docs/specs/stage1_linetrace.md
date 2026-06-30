@@ -2,9 +2,10 @@
 
 > 상태: REVIEWED (설계 검토 완료, 실기 미검증) — 검토 반영: 라인유실 상태전이 순수화(#4),
 > D항 EMA 필터(#8).
-> 선행: **Stage 0 Done** (7개 포트 인식·좌/우 방향 확인·Python 버전 확정).
+> 선행: **Stage 0 Done** (실기 확인·좌/우 방향 확인·Python 버전 확정).
 > 통과기준(Done): [STAGES.md](../STAGES.md) Stage 1 인용 —
-> "직선 + 곡선이 섞인 코스를 끝에서 끝까지 선을 벗어나지 않고 추종. BACK 버튼으로 즉시 멈춘다."
+> "직선 + 곡선이 섞인 코스를 끝에서 끝까지 선을 벗어나지 않고 추종.
+> `robotctl stop` 또는 키보드 인터럽트 등 BACK 이 아닌 정지 경로로 멈춘다."
 > + 여기서 라이브 튜닝 최소 인프라를 처음 만든다.
 
 ## 1. 목표 / 범위
@@ -17,7 +18,7 @@
     [LIVE_TUNING.md](../LIVE_TUNING.md) 에 정의 — **여기서 중복 설명하지 않고 링크로 참조**한다.
   - **판단층↔구동층 분리**(순수 PID 계산 vs 실제 모터 출력). [DECISIONS.md](../DECISIONS.md) 0장.
   - **reason 로깅 최초 도입**: `LINE_FOLLOW`, `LINE_LOST`, `LINE_RECOVER`, `EMERGENCY_STOP`.
-  - BACK 버튼 즉시 정지, 네트워크 비차단(snapshot 패턴).
+  - BACK 버튼은 프로그램 입력으로 할당하지 않고, 네트워크 stop + 비차단(snapshot 패턴)을 쓴다.
 - **안 하는 것 (다음 단계로)**
   - 좌/우 센서(in1/in3) 사용 안 함 → 분기/노드 감지 없음(Stage 3). 중앙 1센서만.
   - 회전 없음(Stage 2). 색 판정 없음(Stage 4). 그리퍼 없음.
@@ -59,7 +60,7 @@ def pid_step(reflect, params, state):
 def read_center_reflect() -> int          # in2 reflected_light_intensity (0~100)
 def drive(left_speed, right_speed)        # 트림 적용, clamp(-100,100)
 def stop()                                # off(brake=True)
-def back_pressed() -> bool                # BACK = 즉시정지 최우선
+def should_stop() -> bool                 # 네트워크 stop/watchdog 같은 정지 플래그
 ```
 - 좌/우 트림(`LEFT/RIGHT_MOTOR_TRIM`)은 **상수**로 시작(STAGES.md: "트림은 상수로 시작").
   곱셈 트림 패턴은 이전 구현 `hardware.Ev3Hardware.drive` 참고(복붙 금지, 구조만).
@@ -101,7 +102,7 @@ def back_pressed() -> bool                # BACK = 즉시정지 최우선
 | `LINE_FOLLOW` | PID 추종 중(주기적/상태유지) | `reflect`, `error`, `turn` |
 | `LINE_LOST` | reflect 가 흰바닥 수준 지속 → 선 유실 판단 | `lost_ms`, `reflect` |
 | `LINE_RECOVER` | 유실 후 선 재포착 | `lost_ms` |
-| `EMERGENCY_STOP` | BACK(또는 네트워크 stop) | `source`("BACK"/"NET") |
+| `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | `source`("NET"/"WATCHDOG") |
 
 - 매 틱 `LINE_FOLLOW` 를 다 남기면 events 가 폭주 → **상태 전이/주기 throttle** 로만 남긴다
   (예: 0.25s 간격 또는 turn 부호 변화 시). 카탈로그에 새 reason 추가 시 DECISIONS.md 표도 갱신.
@@ -123,10 +124,10 @@ def run():
 
     try:
         while True:
-            # (1) BACK = 최우선 즉시 정지 (네트워크와 독립, 결정 6)
-            if hw.back_pressed():
+            # (1) 정지 플래그 확인. BACK 버튼은 프로그램 입력으로 할당하지 않는다.
+            if hw.should_stop():
                 hw.stop()
-                tel.event("EMERGENCY_STOP", source="BACK")
+                tel.event("EMERGENCY_STOP", source="NET")
                 break
 
             # (2) 센서 읽기
@@ -205,7 +206,7 @@ def classify_line(reflect, p):
   ```
   python tools/robotctl.py get                 # 현재 params + 최신 telemetry
   python tools/robotctl.py set kp 0.85         # live 변경(메모리, 범위/스텝 검증)
-  python tools/robotctl.py stop                # 네트워크 정지(보조). BACK 이 1차.
+  python tools/robotctl.py stop                # 네트워크 정지
   ```
 - **에이전트는 제안만**(LIVE_TUNING 워크플로우 1단계): `set` 은 사람이 실행.
 
@@ -237,7 +238,7 @@ def classify_line(reflect, p):
 | 직진인데 한쪽으로 흐름 | `error`≈0 인데 한쪽 치우침 | 좌/우 트림(상수) |
 | 선을 흰바닥으로 오판(자꾸 LOST) | `LINE_LOST` 잦음, `reflect` 가 target 근처 | `target_reflect` 재측정 / `LINE_LOST_MARGIN` |
 | 빠른데 못 따라감 | 곡선마다 LOST/벗어남 | `base_speed`↓ |
-| BACK 눌렀는데 안 멈춤 | `EMERGENCY_STOP` 이벤트 없음 | back_pressed 위치/우선순위(루프 맨 앞) 점검 |
+| `robotctl stop` 이 안 먹힘 | `EMERGENCY_STOP` 이벤트 없음 | stop 플래그 전달/루프 앞 확인 위치 점검 |
 
 - 진단 원칙([DECISIONS.md](../DECISIONS.md) 6장): **감으로 만지지 말고 로그가 짚는 값만**.
 
@@ -256,13 +257,13 @@ def classify_line(reflect, p):
 - [ ] (인프라 MVP) `lib/shared_params.py`,`telemetry.py`,`tuning_server.py`,`pid.py`,`hardware.py`
       — 상세는 [00_infra_dashboard.md](00_infra_dashboard.md)(없으면 그 스펙 먼저 작성).
 - [ ] `tools/robotctl.py` get/set/stop(범위·스텝 검증) — 인프라 스펙.
-- [ ] `stages/stage1_linetrace.py`: §5 제어 루프(BACK 최우선, snapshot 비차단, dt 실측).
+- [ ] `stages/stage1_linetrace.py`: §5 제어 루프(stop 플래그 확인, snapshot 비차단, dt 실측).
 - [ ] 판단층 `pid_step`/`classify_line`/`to_wheel_speeds` 순수 함수로 분리(ev3dev2 비의존).
 - [ ] 구동층 turn→바퀴속도 변환 + 좌/우 트림 상수(Stage 0 방향 반영).
 - [ ] telemetry 5필드 + reason 4종(throttle) 연결.
 - [ ] `python3 -m py_compile` 통과 + 판단층 단위 테스트.
 - [ ] SSH 포트포워딩(`ssh -L 8765:127.0.0.1:8765 ...`) 확인 후 라이브 set 동작 확인.
-- [ ] **실기**: 보정 ①→②→③(한 번에 하나) → 직선+곡선 코스 끝까지 추종 + BACK 정지 확인.
+- [ ] **실기**: 보정 ①→②→③(한 번에 하나) → 직선+곡선 코스 끝까지 추종 + `robotctl stop` 정지 확인.
 - [ ] 결과·확정 params 를 PROGRESS.md 기록, `robotctl save` 로 config/ 저장.
 
 ## 11. 미해결 / 실기 확인 필요

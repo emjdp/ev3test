@@ -134,7 +134,7 @@ Stage 2 값을 그대로 쓴다.
 ## 5. 동작 로직 (의사코드)
 
 > EV3(브릭) 코드는 **Python 3.5 안전**: f-string 금지, `.format()`. 네트워크 비차단
-> (snapshot) · BACK 즉시정지는 인프라([00_infra_dashboard.md](00_infra_dashboard.md)).
+> (snapshot) · 네트워크 stop 처리는 인프라([00_infra_dashboard.md](00_infra_dashboard.md)).
 
 ### 판단층 (순수)
 
@@ -158,7 +158,7 @@ def decide_turn_from_sequence(arrival_kind, seq, idx, params):
 def stage5_run(seq, params, hw, telem, events):
     idx = 0
     while True:
-        if back_button_pressed(): stop(); return        # BACK 최우선(인프라)
+        if stop_requested(): stop(); return
         clear_junction(params["clear_junction_ms"])      # 직전 회전 잔상 벗어남
         arr = follow_to_node()    # Stage1 추종 + Stage3 감지: 노드에서 멈춤
                                   # arr: kind("JCT"/"LEAF"), bits, dist_mm
@@ -292,7 +292,7 @@ def stage5_run(seq, params, hw, telem, events):
 - [ ] telemetry(`node_index`,`last_token`,`seq_remaining`) + reason_code
       (`SEQUENCE_DONE`/`SEQUENCE_EXHAUSTED`/`TURN_*` with rule).
 - [ ] `do corner` 트리거(감지→nudge→회전→재포착 1세트) 연결.
-- [ ] BACK 즉시정지·네트워크 비차단 확인.
+- [ ] 네트워크 stop·네트워크 비차단 확인.
 - [ ] `py_compile` + 단위테스트 + replay 시나리오 통과.
 - [ ] 7절 보정으로 실기 Done(시퀀스대로 코스 통과), [../../PROGRESS.md](../../PROGRESS.md) 기록.
 

@@ -18,10 +18,12 @@ if _ROOT not in sys.path:
 from lib.nodes import (                                  # noqa: E402
     bits_from_raw, bits_str, node_kind, classify_node,
     NodeDebouncer, decide_node, make_node_state,
+    decide_line3, make_follow_state,
 )
 from stages.stage3_node_detect import (                  # noqa: E402
-    advance, deg_to_mm, INITIAL_PARAMS, PARAM_LIMITS, MAX_STEP,
+    advance, deg_to_mm, INITIAL_PARAMS, PARAM_LIMITS, MAX_STEP, FOLLOW_CONSTS,
 )
+from tools.dashboard import _telemetry_summary           # noqa: E402
 
 
 def _params(**over):
@@ -64,6 +66,79 @@ def test_classify_node():
     kind, reason, _ = classify_node((0, 0, 0), {}, {})
     assert kind == "DEAD_END" and reason == "NODE_CANDIDATE"
     print("classify_node ok")
+
+
+# --- 3센서 라인트레이싱(decide_line3) -----------------------------------------
+
+def _follow_params(**over):
+    # 제어 루프가 하는 것처럼 follow 상수를 params 스냅샷에 병합한다.
+    p = dict(INITIAL_PARAMS)
+    p.update(FOLLOW_CONSTS)
+    p.update(over)
+    return p
+
+
+def test_follow_straight_010():
+    # 010: 좌우 raw 가 비슷 → 오차 0 → 직진(turn≈0, 좌=우).
+    st = make_follow_state()
+    a = decide_line3((80, 5, 80), (0, 1, 0), _follow_params(), st)
+    assert abs(a["turn"]) < 1e-9
+    assert a["left"] == a["right"]
+    assert abs(a["line_error3"]) < 1e-9
+    assert a["line"] == "ON"
+    print("follow straight 010 ok")
+
+
+def test_follow_left_correction_100_110():
+    # 100/110: 왼쪽이 더 검음 → turn>0(왼쪽 보정), left<right.
+    for bits, raw in (((1, 0, 0), (0, 80, 80)), ((1, 1, 0), (0, 0, 80))):
+        st = make_follow_state()
+        a = decide_line3(raw, bits, _follow_params(), st)
+        assert a["turn"] > 0, bits
+        assert a["left"] < a["right"], bits
+        assert a["line_error3"] > 0, bits
+        assert st["last_turn"] == a["turn"]      # 직전 조향 기록
+    print("follow left correction 100/110 ok")
+
+
+def test_follow_right_correction_001_011():
+    # 001/011: 오른쪽이 더 검음 → turn<0(오른쪽 보정), left>right.
+    for bits, raw in (((0, 0, 1), (80, 80, 0)), ((0, 1, 1), (80, 0, 0))):
+        st = make_follow_state()
+        a = decide_line3(raw, bits, _follow_params(), st)
+        assert a["turn"] < 0, bits
+        assert a["left"] > a["right"], bits
+        assert a["line_error3"] < 0, bits
+    print("follow right correction 001/011 ok")
+
+
+def test_follow_node_candidate_slow_straight_111_101():
+    # 111/101: 노드 후보 → 저속 직진(turn 0, 좌=우, base 보다 느림).
+    base = FOLLOW_CONSTS["follow_base_speed"]
+    slow = FOLLOW_CONSTS["follow_slow_speed"]
+    for bits in ((1, 1, 1), (1, 0, 1)):
+        st = make_follow_state()
+        a = decide_line3((3, 3, 3), bits, _follow_params(), st)
+        assert abs(a["turn"]) < 1e-9, bits
+        assert a["left"] == a["right"] == slow, bits
+        assert 0 < a["left"] < base, bits
+        assert a["line"] == "NODE", bits
+    print("follow node candidate slow straight 111/101 ok")
+
+
+def test_follow_dead_end_000_holds_last_turn_and_stops():
+    # 000: 막다른 길 후보 → 속도 0(정지) + 직전 조향(last_turn) 유지(보수).
+    st = make_follow_state()
+    # 먼저 왼쪽 코너로 조향해 last_turn>0 으로 만든다.
+    decide_line3((0, 0, 80), (1, 1, 0), _follow_params(), st)
+    held = st["last_turn"]
+    assert held > 0
+    a = decide_line3((80, 80, 80), (0, 0, 0), _follow_params(), st)
+    assert a["left"] == 0 and a["right"] == 0          # 속도 0
+    assert a["turn"] == held                            # 직전 조향 유지
+    assert st["last_turn"] == held                      # 막다른 길에선 last_turn 갱신 안 함
+    assert a["line"] == "LOST"
+    print("follow dead end 000 holds last turn and stops ok")
 
 
 # --- 후보 debounce -----------------------------------------------------------
@@ -236,6 +311,37 @@ def test_node_confirm_stops_motor():
     print("node confirm stops motor ok")
 
 
+# --- dashboard _telemetry_summary (Stage 3 친화 요약, Stage 1 회귀) -----------
+
+def test_dashboard_summary_stage3_keys():
+    # Stage 3 telemetry 프레임의 핵심 키가 요약 문자열에 보여야 한다.
+    frame = {
+        "mode": "FOLLOW", "bits": "110",
+        "reflect": [0, 0, 80], "reflect_l": 0, "reflect_c": 0, "reflect_r": 80,
+        "node_candidate": True, "node_confirmed": False,
+        "error": 80.0, "line_error3": 80.0,
+        "turn": 35, "left_speed": -15, "right_speed": 55,
+    }
+    s = _telemetry_summary(frame)
+    for token in ("bits=110", "mode=FOLLOW", "reflect_l=", "reflect_c=", "reflect_r=",
+                  "node_candidate=", "node_confirmed=", "turn=",
+                  "left_speed=", "right_speed="):
+        assert token in s, token
+    # error 또는 line_error3 중 하나는 보여야 한다.
+    assert ("error=" in s) or ("line_error3=" in s)
+    print("dashboard summary stage3 keys ok")
+
+
+def test_dashboard_summary_stage1_not_broken():
+    # Stage 1 프레임(스칼라 reflect, Stage3 키 없음)도 그대로 요약된다.
+    frame = {"reflect": 6, "error": 0, "turn": 0.0, "left_speed": 20, "right_speed": 20}
+    s = _telemetry_summary(frame)
+    for token in ("reflect=", "error=", "turn=", "left_speed=", "right_speed="):
+        assert token in s, token
+    assert "bits=" not in s and "mode=" not in s        # Stage3 키는 끼지 않음
+    print("dashboard summary stage1 not broken ok")
+
+
 # --- params 안전 메타 --------------------------------------------------------
 
 def test_param_safety_metadata():
@@ -251,6 +357,11 @@ def main():
     test_bits_from_raw()
     test_node_kind_all_patterns()
     test_classify_node()
+    test_follow_straight_010()
+    test_follow_left_correction_100_110()
+    test_follow_right_correction_001_011()
+    test_follow_node_candidate_slow_straight_111_101()
+    test_follow_dead_end_000_holds_last_turn_and_stops()
     test_line_never_confirms()
     test_candidate_then_confirm()
     test_node_debounce_prevents_duplicate()
@@ -262,6 +373,8 @@ def main():
     test_advance_zero_is_inplace()
     test_advance_stop_breaks_early()
     test_node_confirm_stops_motor()
+    test_dashboard_summary_stage3_keys()
+    test_dashboard_summary_stage1_not_broken()
     test_param_safety_metadata()
     print("ALL stage3 logic tests passed")
 

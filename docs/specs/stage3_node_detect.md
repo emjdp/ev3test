@@ -1,7 +1,9 @@
 # Stage 3 — 노드(분기) 감지 구현 명세
 
 > 상태: DRAFT (실기 미검증)
-> 선행: Stage 1(라인트레이싱) 실기 Done — 이 단계는 Stage 1의 라인추종을 가져와 쓴다.
+> 선행: Stage 1(라인트레이싱) 실기 Done — 이 단계는 Stage 1에서 확정한 **하드웨어/주행
+> 기반**(모터 부호 `left=base-turn`/`right=base+turn`, 속도 기조)은 유지하되, **주행 판단은
+> 좌·중·우 3센서 기반**(`decide_line3`)으로 한다. Stage 1 중앙센서 단일 PID 를 그대로 쓰지 않는다.
 > 인프라([00_infra_dashboard.md](00_infra_dashboard.md))의 record/replay 가 동작해야 한다.
 > 통과기준(Done): [STAGES.md](../STAGES.md) Stage 3 인용 —
 > "코스 위 각 노드 종류(T자, 십자, 좌/우 분기, 막다른 길)를 **노드 위에서** 멈춰 올바른
@@ -20,7 +22,10 @@
   - 약속: `1 = 검은 선(어두움)`, `0 = 흰 바닥(밝음)`. (반사광은 흰 바닥=큰 값, 검은 선=작은 값.)
   - 예: `010`=직선 / `111`=십자/교차 / `110`·`011`=좌/우 코너·분기 / `000`=선 없음(막다른 길 후보).
 - bits 패턴으로 **분기·교차·막다른 길·코너**를 구분한다.
-- Stage 1 라인추종으로 "**선 따라가다 노드에서 멈춤**"까지 한다.
+- **좌·중·우 3센서 라인추종**(`decide_line3`)으로 "**선 따라가다 노드에서 멈춤**"까지 한다
+  (중앙센서가 라인 위, 좌/우가 보조: `010`=직진, 왼쪽이 더 검으면 왼쪽·오른쪽이 더 검으면
+  오른쪽 보정). Stage 1 중앙센서 단일 PID 를 그대로 재사용하지 않는다 — Stage 1 의 **부호/속도
+  기조만** 따른다.
 - 노드 확정 시 패턴·진입거리를 reason 로그로 남긴다(`NODE_CANDIDATE` / `NODE_CONFIRMED`).
 - **판단층(`classify_node`)을 순수 함수**로 둬, 기록한 센서로 **로봇 없이 재연**(`replay.py`)한다.
 
@@ -37,8 +42,8 @@
 | 경로 | 내용 |
 |---|---|
 | `stages/stage3_node_detect.py` | 독립 실행 진입점. 초기 params/PARAM_LIMITS/MAX_STEP 상수, 라인추종 루프 + 노드 감지로 정지. |
-| `lib/nodes.py` (신규, 판단층, **순수**) | `bits_from_raw`, `classify_node`, `NodeDebouncer`. ev3dev2·시간·모터 없음. |
-| `lib/linetrace.py` (기존, Stage 1) | 라인추종 PID. **수정 없이 import 재사용**(확정 코드 불변 원칙). |
+| `lib/nodes.py` (신규, 판단층, **순수**) | `bits_from_raw`, `classify_node`, `NodeDebouncer`, **`decide_line3`(3센서 follow)**. ev3dev2·시간·모터 없음. |
+| ~~`lib/linetrace.py`~~ (Stage 1 PID 재사용 안 함) | Stage 1 중앙센서 단일 PID 를 import 하지 않는다. 주행 판단은 `decide_line3`(좌/중/우). Stage 1 의 **부호/속도 기조만** 따른다. |
 | `lib/hardware.py` (기존) | `read_reflect()`(좌/중/우), `read_encoders()`(이동거리 추정). 재사용. |
 | `tools/replay.py` (기존, 인프라) | 기록한 samples 를 `classify_node` 에 재연. |
 
@@ -168,11 +173,11 @@ EV3 코드는 **Python 3.5 안전**(f-string 금지, `.format()`).
 ```python
 def main():
     hw = Ev3Hardware()
-    pid = LineTracer(STAGE1_PID)            # 확정된 Stage1 라인추종(수정 없이)
     params = dict(INITIAL_PARAMS)
     server = start_tuning_server(params, PARAM_LIMITS, MAX_STEP)
     log = ReasonLogger()
     deb = NodeDebouncer()                    # 순수 판정기
+    follow_state = make_follow_state()       # 3센서 follow 상태(last_turn 보관)
     state = {"node_dist0_deg": 0}            # 직전 노드 이후 거리 기준점
 
     hw.reset_encoders()
@@ -205,8 +210,11 @@ def main():
             state["node_dist0_deg"] = hw.enc_avg()    # 거리 기준점 갱신(debounce 와 함께)
             wait_or_stop(hw)                          # 다음 노드 보러 계속 / 또는 정지(운용 선택)
         else:
-            ls, rs = pid.step(raw, snap)              # 노드 아니면 라인추종 계속
-            hw.drive(ls, rs)
+            # 노드 아니면 3센서 라인추종 계속(중앙센서 단일 PID 아님).
+            # 구동층이 follow 상수를 snap 에 병합해 넘긴다(lib↔stages 순환 방지).
+            follow_p = merge(snap, FOLLOW_CONSTS)
+            action = decide_line3(raw, bits, follow_p, follow_state)
+            hw.drive(action["left"], action["right"])
 
         push_telemetry(server, reflect=raw, bits=bits_str(bits),
                        dist_mm=dist_mm, enc_avg=hw.enc_avg(), confirm_count=deb.count)

@@ -67,6 +67,89 @@ def node_kind(bits):
     return "CROSS"
 
 
+# =====================================================================
+# 3센서 라인트레이싱(순수) — 노드 확정 전 FOLLOW 상태의 주행 판단.
+#   Stage 1 중앙센서 PID 가 아니라 좌/중/우 bits/raw 로 추종한다.
+#   구동층(stages/stage3_node_detect.py)이 follow 상수를 params 에 병합해 넘긴다
+#   (lib 가 stages 를 import 하지 않게 — 순환 참조 방지).
+# =====================================================================
+
+# 구동층이 병합을 빠뜨려도 동작하게 하는 안전 기본값(실제 값은 stage3 파일 상수).
+FOLLOW_DEFAULTS = {
+    "follow_base_speed": 20,    # 직진 기본 속도(%)
+    "follow_gain": 2.0,         # line_error3(좌우 raw 차) 당 turn
+    "follow_turn_limit": 35,    # turn 클램프(±)
+    "follow_slow_speed": 12,    # 노드 후보(111/101) 저속 직진 속도(%)
+}
+
+# 노드 후보(확정 전 저속 직진)·막다른 길 후보 bits 패턴.
+_NODE_CANDIDATE_BITS = ((1, 1, 1), (1, 0, 1))
+_DEAD_END_BITS = (0, 0, 0)
+
+
+def _clampf(value, lo, hi):
+    if value < lo:
+        return lo
+    if value > hi:
+        return hi
+    return value
+
+
+def make_follow_state():
+    """decide_line3 용 상태. last_turn(직전 조향) 보관 — 막다른 길에서 유지한다."""
+    return {"last_turn": 0.0}
+
+
+def decide_line3(raw, bits, params, state):
+    """좌/중/우 3센서 라인트레이싱 1틱(순수). 노드 확정 전 FOLLOW 에서 쓴다.
+
+    raw   : (l, c, r) raw 반사광. 흰 바닥=큰 값, 검은 선=작은 값.
+    bits  : (l, c, r) 0/1. 1=검은 선.
+    params: 구동층이 병합한 스냅샷 + Stage 3 follow 상수
+            (follow_base_speed/follow_gain/follow_turn_limit/follow_slow_speed).
+    state : make_follow_state() 결과. last_turn 을 제자리 갱신(라인 추종 시에만).
+
+    반환 action(dict): {line, turn, error, line_error3, left, right}
+
+    부호 약속(Stage 1 to_wheel_speeds 와 동일):
+      turn > 0 → left=base-turn, right=base+turn → 로봇이 왼쪽으로 돈다.
+
+      010            -> turn≈0 직진(좌우 raw 비슷 → 오차 0).
+      100/110        -> 왼쪽이 더 검음(l 작음) → line_error3>0 → turn>0(왼쪽 보정).
+      001/011        -> 오른쪽이 더 검음(r 작음) → line_error3<0 → turn<0(오른쪽 보정).
+      111/101        -> 노드 후보 → 저속(slow_speed) 직진(turn 0). 멈춤은 debounce 가.
+      000            -> 막다른 길 후보 → 속도 0(정지) + 직전 조향(last_turn) 유지(보수).
+    """
+    l, c, r = raw
+    base = params.get("follow_base_speed", FOLLOW_DEFAULTS["follow_base_speed"])
+    gain = params.get("follow_gain", FOLLOW_DEFAULTS["follow_gain"])
+    turn_limit = params.get("follow_turn_limit", FOLLOW_DEFAULTS["follow_turn_limit"])
+    slow = params.get("follow_slow_speed", FOLLOW_DEFAULTS["follow_slow_speed"])
+
+    pattern = (int(bits[0]), int(bits[1]), int(bits[2]))
+
+    # 노드 후보(111/101): 확정 전에는 저속 직진(노드 위에서 멈추기 유리하게). turn 0.
+    if pattern in _NODE_CANDIDATE_BITS:
+        return {"line": "NODE", "turn": 0.0, "error": 0.0, "line_error3": 0.0,
+                "left": slow, "right": slow}
+
+    # 막다른 길 후보(000): 확정 전 짧은 순간엔 직전 조향 유지 + 속도 0(보수적 정지).
+    if pattern == _DEAD_END_BITS:
+        held = state.get("last_turn", 0.0)
+        return {"line": "LOST", "turn": held, "error": 0.0, "line_error3": 0.0,
+                "left": 0, "right": 0}
+
+    # 라인 추종(010/100/110/001/011): 좌/우 raw 차로 위치 오차를 만든다.
+    #   왼쪽이 더 검으면(l 작음) line_error3 = r - l > 0 → turn>0 → 왼쪽 보정.
+    line_error3 = float(r - l)
+    turn = _clampf(gain * line_error3, -turn_limit, turn_limit)
+    state["last_turn"] = turn
+    left = base - turn
+    right = base + turn
+    return {"line": "ON", "turn": turn, "error": line_error3,
+            "line_error3": line_error3, "left": left, "right": right}
+
+
 def classify_node(bits, params, state):
     """bits → (kind, reason_code, detail). 순수(부작용 없음, replay 대상).
 
@@ -244,6 +327,23 @@ def _self_test():
     assert deb.push((0, 1, 0), 40, p)[0] is None        # 노이즈로 리셋
     assert deb.push((1, 1, 0), 60, p)[0] == "NODE_CANDIDATE"  # 새 후보
     assert deb.push((1, 1, 0), 130, p)[0] is None       # 60~130=70 < 100
+
+    # decide_line3 3센서 follow: 010 직진, 110 왼쪽(turn>0), 011 오른쪽(turn<0),
+    # 111 노드후보 저속 직진, 000 막다른 길 정지+직전 조향 유지.
+    fs = make_follow_state()
+    a = decide_line3((80, 5, 80), (0, 1, 0), {}, fs)
+    assert abs(a["turn"]) < 1e-9 and a["left"] == a["right"] and a["line"] == "ON"
+    a = decide_line3((0, 0, 80), (1, 1, 0), {}, fs)
+    assert a["turn"] > 0 and a["left"] < a["right"] and a["line_error3"] > 0
+    assert fs["last_turn"] > 0
+    a = decide_line3((80, 0, 0), (0, 1, 1), {}, fs)
+    assert a["turn"] < 0 and a["left"] > a["right"] and a["line_error3"] < 0
+    a = decide_line3((3, 3, 3), (1, 1, 1), {}, fs)
+    assert abs(a["turn"]) < 1e-9 and a["left"] == a["right"] and a["line"] == "NODE"
+    fs2 = make_follow_state()
+    decide_line3((0, 0, 80), (1, 1, 0), {}, fs2)        # 왼쪽 조향으로 last_turn>0
+    a = decide_line3((80, 80, 80), (0, 0, 0), {}, fs2)
+    assert a["left"] == 0 and a["right"] == 0 and a["turn"] == fs2["last_turn"] > 0
 
     # decide_node replay 어댑터
     st = make_node_state()

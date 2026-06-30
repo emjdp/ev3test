@@ -16,7 +16,7 @@
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
-| Stage 3 노드 감지 | 🟡 진행 중 | 2026-06-30 코드+PC검증 완료(claude). 좌/중/우 bits, debounce 확정, 노드 위 정지. **실기 검증 필요** |
+| Stage 3 노드 감지 | 🟡 진행 중 | 2026-06-30 코드+PC검증 완료(claude). 좌/중/우 bits, **3센서 추종(decide_line3, 중앙 PID 제거)**, debounce 확정, 노드 위 정지. **실기 검증 필요** |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
@@ -76,6 +76,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 > 보정 루프: 노트북에서 `robotctl do follow` → 선 따라가다 노드에서 1정지 → 값 하나만
 > 고치고 다시 `do follow`. 만질 값은 **로그가 짚는 것만**(DECISIONS.md 6장).
 
+0. **3센서 추종 거동 먼저 확인(decide_line3).** 직선(`010`)에서 `turn≈0`(좌=우)으로 곧게 가는지,
+   왼쪽이 더 검을 때(`110`/`100`) 왼쪽으로, 오른쪽이 더 검을 때(`011`/`001`) 오른쪽으로 도는지
+   telemetry `bits`/`line_error3`/`turn`/`left_speed`/`right_speed` 로 본다. 흔들리거나 과조향이면
+   **`FOLLOW_GAIN` 한 값만** 내리고(반대면 올리고) 재배포(라이브 아님 — 파일 상단 Stage 3 상수).
+   곡선을 못 따라가면 `FOLLOW_BASE_SPEED`↓ 또는 `FOLLOW_GAIN`↑ 중 **하나만**. 노드 후보(`111`/`101`)
+   에서 너무 빠르면 `FOLLOW_SLOW_SPEED`↓. 이 거동이 안정된 뒤 1번 threshold 보정으로 넘어간다.
 1. **threshold 부터(센서별 1개씩).** 흰 바닥/검은 선에 각 센서를 두고 telemetry `reflect_l/c/r`
    raw 를 본다. **좌/우 센서(in1/in3)는 미실측** — Stage 1 중앙 실측(검정 0/흰색 10)을 따라
    `left/center/right_threshold` 기본 5로 시작했다. 흑·백 중간으로 한 센서씩 맞춘다.
@@ -96,6 +102,10 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `WHEEL_DIAM_MM`(deg→mm) | stage3 상수 | 56.0(가정) | 줄자 실측 후 갱신 |
 | `ADVANCE_SPEED` | stage3 상수 | 15 | advance 가 느리고 안정적인지 실기 확인 |
 | `CONTINUE_AFTER_NODE` | stage3 상수 | False(1노드 1정지) | 코스 연속 통과 확인 시 True 검토 |
+| `FOLLOW_GAIN` | stage3 상수 | 2.0 | 3센서 추종 과조향/흔들림이면 ↓, 곡선 못 따라가면 ↑(한 값만) |
+| `FOLLOW_BASE_SPEED` | stage3 상수 | 20 | Stage 1 기조. 곡선에서 빠르면 ↓ |
+| `FOLLOW_TURN_LIMIT` | stage3 상수 | 35 | Stage 1 기조. turn 포화 잦으면 조정 |
+| `FOLLOW_SLOW_SPEED` | stage3 상수 | 12 | 노드 후보(111/101) 저속 직진. 노드 지나치면 ↓ |
 
 ### Stage 2 실기 검증 결과 (2026-06-30 Done)
 
@@ -139,6 +149,36 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-06-30 — Stage 3 주행 판단을 좌/중/우 3센서로 교체(중앙센서 PID 제거) (Agent: claude)
+- **문제**: Stage 3 가 Stage 1 중앙센서 PID(`decide_line`)를 그대로 import 해 라인추종했다.
+  중앙센서가 검정 위에 있으면 `target_reflect` 오차로 바로 크게 돌 수 있었다. Stage 3 는
+  이미 좌/중/우 bits 를 만들고 있으므로 **그 bits/raw 로 3센서 추종**하도록 고쳤다.
+- **범위 유지**: 노드 감지 확정 로직(NODE_CANDIDATE/CONFIRMED·node_confirm_ms·node_debounce_ms·
+  node_advance)·debounce·노드 위 정지는 그대로. **회전·색 판정·분기 선택은 추가하지 않음**(Stage 4/5).
+- **lib/nodes.py**: 순수 함수 `decide_line3(raw, bits, params, state)` 추가(+`make_follow_state`).
+  - 출력 action: `left/right/turn/error/line_error3/line`.
+  - 부호는 Stage 1 하드웨어 기준 유지: `turn>0 → left=base-turn, right=base+turn`(왼쪽으로 돈다).
+  - `010`→turn 0 직진, `100/110`→왼쪽 보정(turn>0), `001/011`→오른쪽 보정(turn<0).
+  - `line_error3 = r - l`(왼쪽이 더 검으면 l 작음 → 양수 → 왼쪽). gain·clamp 는 follow 상수.
+  - `111/101`→노드 후보: 저속(slow_speed) 직진(turn 0, 노드에서 멈추기 유리). 멈춤은 debounce.
+  - `000`→DEAD_END 후보: 확정 전 짧은 순간엔 **속도 0(정지) + 직전 조향(last_turn) 유지**(보수).
+- **stages/stage3_node_detect.py**: `stage1_linetrace`(decide_line/make_state/STAGE1_PID) **import 완전 제거**.
+  follow gain/base/turn limit/slow speed 를 **파일 상단 Stage 3 내부 상수**(`FOLLOW_*`/`FOLLOW_CONSTS`)로
+  두고, 제어 루프가 params 스냅샷에 **병합해 decide_line3 으로 전달**(lib 가 stages 를 import 하지
+  않게 — 순환 참조 방지). 새 live param 추가 없음(여전히 6개). `_line_follow`→`_follow3`.
+- **tools/dashboard.py**: `_telemetry_summary` 우선순위를 Stage 3 친화로 개선(bits/mode/reflect_l·c·r/
+  node_candidate/node_confirmed/error·line_error3/turn/left·right_speed 가 첫 줄에). **있는 키만 표시**
+  구조 유지 → Stage 1(reflect/error/turn/속도)·Stage 2(generic fallback) 표시 안 깨짐.
+- **docs**: STAGES.md Stage 3 메모 + `docs/specs/stage3_node_detect.md` 를 "Stage 1 중앙 PID 재사용"
+  → "Stage 1 하드웨어/주행 기반은 유지, 주행 판단은 좌/중/우 3센서"로 수정. 회전/색 없음·노드 정지까지 명시.
+- **tests**: `tests/test_stage3_logic.py` 에 decide_line3 케이스(010/100·110/001·011/111·101/000) +
+  `_telemetry_summary` 단위 테스트(Stage 3 키 포함·Stage 1 비파괴) 추가. 기존 debounce 테스트 유지.
+- **PC 검증(통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py`,
+  `test_stage1_logic.py`/`test_stage2_logic.py`/`test_stage3_logic.py`(22개), `lib/nodes.py` self-test.
+- **실기 검증 필요**(아래 블록): threshold→confirm→debounce→node_advance 순은 그대로. 3센서 추종
+  거동(`FOLLOW_GAIN`/`FOLLOW_BASE_SPEED`/`FOLLOW_SLOW_SPEED`)은 내부 상수라 **재배포 1회로** 만진다
+  (라이브 아님). **Stage 3 Done 아님.**
 
 ### 2026-06-30 — 대시보드 save 상태 메시지 명확화(혼동 원인 규명) (Agent: claude)
 - **증상**: 노트북 대시보드에서 `S`→`y` 로 저장하니 "어디에 저장됨" 경로는 떴는데 노트북에서

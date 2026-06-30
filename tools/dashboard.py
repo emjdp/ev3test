@@ -551,7 +551,17 @@ def _compact_response(response: dict[str, Any]) -> str:
 
 
 def _telemetry_summary(frame: dict[str, Any]) -> str:
-    priority = ["reflect", "error", "turn", "left_speed", "right_speed", "last_reason"]
+    # Stage 3 친화적 우선순위(있는 키만 표시 → Stage 1/2 표시는 그대로 유지).
+    # Stage 3: bits/mode/reflect_l·c·r/node flags/error·line_error3/turn/속도가 앞에 온다.
+    # Stage 1: reflect/error/turn/left_speed/right_speed (Stage 3 키는 없어 건너뜀).
+    priority = [
+        "bits", "mode",
+        "reflect_l", "reflect_c", "reflect_r",
+        "node_candidate", "node_confirmed",
+        "reflect", "error", "line_error3",
+        "turn", "left_speed", "right_speed",
+        "last_reason",
+    ]
     parts = []
     for key in priority:
         if key in frame:

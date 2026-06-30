@@ -1,4 +1,4 @@
-"""Stage 1 구동층 (ev3dev2).
+"""Stage 1~2 구동층 (ev3dev2).
 
 판단층(순수)과 분리된 구동층이다. 여기만 ev3dev2 에 의존한다.
 PC 에는 ev3dev2 가 없으므로 import 는 __init__ 안에서 한다(py_compile 안전).
@@ -8,6 +8,12 @@ PC 에는 ev3dev2 가 없으므로 import 는 __init__ 안에서 한다(py_compi
   - 주행 우 라지 모터: outB  (전진 방향 정상)
   - 중앙 컬러센서:      in2  (Stage 0 OK)
 Stage 1 은 중앙센서 1개만 쓴다(in1/in3/in4 는 다음 단계).
+
+Stage 2 추가(2026-06-30): 엔코더 각도 기반 제자리 회전을 위해 아래 메서드를 **추가만** 한다.
+  - reset_encoders() / read_encoders() : 누적 회전각(도) 리셋/읽기
+  - drive_raw()                        : 트림 미적용 좌/우 명령(회전엔 트림 X — stage2 명세 §5.3)
+  - beep_ok()                          : 회전 완료 신호(보정 루프 리듬). best-effort.
+Stage 1 확정 메서드(drive/stop/read_center_reflect)와 __init__ 기존 동작은 수정하지 않는다.
 
 규약: 브릭 코드는 Python 3.5 안전 — f-string 금지, .format() 사용.
 """
@@ -46,6 +52,15 @@ class Ev3Hardware(object):
         self._right = LargeMotor(RIGHT_MOTOR_PORT)
         self._center = ColorSensor(CENTER_SENSOR_PORT)
 
+        # Stage 2 회전 완료음(선택). 없거나 실패해도 주행/회전에 영향 없게 best-effort.
+        # (Stage 1 도 Ev3Hardware 를 쓰므로 여기서 예외가 나면 안 된다.)
+        self._sound = None
+        try:
+            from ev3dev2.sound import Sound
+            self._sound = Sound()
+        except Exception:
+            self._sound = None
+
     def read_center_reflect(self):
         """in2 반사광(0~100). 속성 접근이 모드를 COL-REFLECT 로 맞춘다(Stage 0 과 동일)."""
         return self._center.reflected_light_intensity
@@ -61,3 +76,31 @@ class Ev3Hardware(object):
         """양 바퀴 정지(brake)."""
         self._left.off(brake=True)
         self._right.off(brake=True)
+
+    # --- Stage 2 추가(엔코더 회전). Stage 1 코드는 위에서 건드리지 않았다. ---
+
+    def drive_raw(self, left_speed, right_speed):
+        """좌/우 바퀴 속도(%) 명령(트림 미적용). 제자리 회전은 좌우 대칭이어야 하므로
+        직진 쏠림 보정용 LEFT/RIGHT_MOTOR_TRIM 을 적용하지 않는다(stage2 명세 §5.3)."""
+        left = clamp(left_speed, -MAX_SPEED, MAX_SPEED)
+        right = clamp(right_speed, -MAX_SPEED, MAX_SPEED)
+        self._left.on(self._SpeedPercent(left))
+        self._right.on(self._SpeedPercent(right))
+
+    def reset_encoders(self):
+        """좌/우 모터 누적 회전각(도)을 0 으로. position 만 0 으로 둬 다른 상태는 안 건드림."""
+        self._left.position = 0
+        self._right.position = 0
+
+    def read_encoders(self):
+        """좌/우 모터 누적 회전각(도) 튜플. 부호는 회전 방향을 따른다."""
+        return self._left.position, self._right.position
+
+    def beep_ok(self):
+        """회전 완료 신호음(best-effort). Sound 가 없으면 조용히 통과."""
+        if self._sound is None:
+            return
+        try:
+            self._sound.beep()
+        except Exception:
+            pass

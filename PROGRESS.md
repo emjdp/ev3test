@@ -5,15 +5,16 @@
 
 ## 현재 단계
 
-**Stage 1 — 기초 라인트레이싱 보정 중 (센서 기준값 1차 확정, PID 보정 대기)**
+**Stage 2 — 원시 회전(좌90/우90/U턴) 보정 중 (코드+PC 검증 완료, 실기 각도 보정 대기)**
+(Stage 1 은 2026-06-30 사용자 판단으로 실기 Done 처리 — 아래 상태판/로그 참조.)
 
 ## 단계 상태판
 
 | 단계 | 상태 | 비고 |
 |---|---|---|
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
-| Stage 1 기초 라인트레이싱 | 🟡 진행 중 | 중앙센서 반사광: 검정 0 / 흰색 10, target_reflect 6, base_speed 20. PID 보정 대기 |
-| Stage 2 원시 회전(좌/우/U) | ⬜ 시작 전 | |
+| Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
+| Stage 2 원시 회전(좌/우/U) | 🟡 진행 중 | 코드+PC 검증 완료(엔코더 각도 회전). 좌→우→U 각 3회 연속 재현은 **실기 검증 필요** |
 | Stage 3 노드 감지 | ⬜ 시작 전 | |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
@@ -54,9 +55,43 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       - ⚠️ **MVP 한정**: 무거운 대시보드(그래프/자동튜닝)는 금지(LIVE_TUNING.md). py_compile + PC 테스트.
 - [x] (Stage 1) **코드 작성 + PC 검증 완료** — `stages/stage1_linetrace.py`, `lib/hardware.py`,
       `tests/test_stage1_logic.py`. 판단층(순수)↔구동층(ev3dev2) 분리, params 6개, reason 4종. [claude]
-- [ ] **실기 검증(Stage 1 Done 조건)**: 센서 기준값 1차 확정 완료. PID 보정 + 코스 추종 확인 대기.
-- [ ] (이후) **Stage 2 는 Stage 1 실기 Done 후에만 착수.** ⚠️ 1~7 일괄 작성 금지(AGENTS.md 1절).
+- [x] **Stage 1 실기 Done — 사용자 판단으로 처리(2026-06-30).** ⚠️ 대화상에서 코스 추종/정지
+      경로의 상세 실기 로그까지는 남기지 않았다. 추후 Stage 1 을 다시 만질 일이 생기면
+      "Stage 1 실기 검증 필요" 표의 미확정 상수(조향 부호/트림/LINE_LOST_MARGIN/RECOVER_SPEED)를
+      그때 확정한다. (Stage 0 도 같은 방식으로 사람이 Done 처리한 선례.)
+- [x] (Stage 2) **코드 작성 + PC 검증 완료** — `stages/stage2_turns.py`, `lib/decide_turn.py`,
+      `lib/turns.py`, `lib/hardware.py`(엔코더 메서드 추가), `tests/test_stage2_logic.py`. [claude]
+- [ ] **Stage 2 실기 검증(Done 조건)**: 아래 "Stage 2 실기 검증 필요" 블록. ⚠️ Stage 3 이후 착수 금지.
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
+
+### Stage 2 실기 검증 필요 (다음에 브릭에서 할 일)
+
+> **한 번에 변수 하나.** 좌가 끝나야 우, 우가 끝나야 U턴(stage2_turns.md §7). 값 하나 바꾸고
+> `do` 재실행 → 결과를 여기 기록.
+
+1. **인프라/트리거 동작**: 브릭에서 `python3 stages/stage2_turns.py` 실행 → 노트북에서
+   `python3 tools/robotctl.py describe`(stage=stage2, actions=turn_left/right/uturn 확인),
+   `do turn_left` 가 회전 1회 + `TURN_LEFT` events + `enc_avg` telemetry 를 내는지,
+   `stop` 으로 회전 중 즉시 정지(EMERGENCY_STOP)되는지 확인.
+2. **바퀴 기하 실측 → `BASE_PIVOT_DEG_90/180` 1차값 갱신**: 현재 값은 **가정**(바퀴지름 d≈56mm,
+   트레드 T≈120mm → 90°≈193°, 180°≈386°). 줄자로 d·T 실측 후 공식
+   `deg = (T/2)*θ_rad / (π*d) * 360` 으로 다시 계산해 `stage2_turns.py` 상수만 교체(라이브 아님).
+3. **회전 방향 부호 확인**: 좌회전=좌바퀴 후진/우바퀴 전진 가정(`lib/turns.py` `_DIRS`).
+   반대면 `_DIRS` 부호만 뒤집는다(Stage 0 모터 극성 기준).
+4. **좌90 보정**: `turn_speed` 낮게 고정 → `do turn_left` → `turn_90_factor` 만 0.05씩 조정 →
+   **3회 연속 ±오차** 안에 들 때까지. (이때 다른 값 안 만짐.)
+5. **우90 확인**: 같은 `turn_90_factor` 로 `do turn_right` 3회. 좌/우가 계속 다른 방향으로 어긋나면
+   `turn_90_left/right_factor` 분리 검토(stage2_turns.md §11, 라이브 5개로 늘어도 6 이하).
+6. **U턴 보정**: `do uturn` → `turn_180_factor` 만 0.05씩 → 3회 연속 재현. U턴 방향(좌/우)도 확정.
+7. **settle 점검**: 정지 직후 밀려 측정 흔들리면 `post_turn_settle_ms` ↑.
+8. **Done**: 좌·우·U 셋 다 3회 연속 재현 → `robotctl save`(config/stage2.json). **그 전엔 진행 중.**
+
+| 미확정 상수/부호 | 위치 | 현재값 | 확정 방법 |
+|---|---|---|---|
+| `BASE_PIVOT_DEG_90/180` | stage2 상수 | 193 / 386 (가정) | 바퀴 d·트레드 T 실측 후 기하식 재계산 |
+| 회전 방향 부호(`_DIRS`) | lib/turns.py | 좌=(-,+)/우=(+,-)/U=(+,-) | 실기 회전 방향 보고 필요 시 부호 반전 |
+| 좌/우 계수 통합 vs 분리 | stage2 params | 통합(`turn_90_factor`) | 좌/우 오차가 계속 다르면 분리 |
+| U턴 방향 | lib/turns.py | 우회전과 동일 | 코스/공간 제약에 따라 실기 확정 |
 
 ### Stage 1 실기 검증 필요 (다음에 브릭에서 할 일)
 
@@ -81,7 +116,51 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
-### 2026-06-30 — Stage 1 센서 기준값 1차 실측 정리 (Agent: codex)
+### 2026-06-30 — Stage 2 원시 회전(좌90/우90/U턴) 구현 + PC 검증 (Agent: claude)
+- **게이트**: 사용자가 Stage 1 을 실기 Done 으로 선언 → Stage 2 착수(Stage 0 도 사람이 Done
+  처리한 선례). 대화상 코스 추종/정지의 상세 실기 로그는 남기지 않음 — 정직하게 기록만.
+- **범위**: Stage 2 만. 노드 감지(Stage3)·색 판정(Stage4)·라인트레이싱 통합(Stage5) 미구현.
+  라인 재포착 회전정지도 안 함(Stage 5). 여기서는 **순수 회전 각도만**.
+- **새 파일**:
+  - `stages/stage2_turns.py` — 트리거 대기 루프. 파일 맨 위 INITIAL_PARAMS(**4개**) +
+    PARAM_LIMITS/MAX_STEP/UI_STEP/UNITS/PARAM_ORDER(Stage 1 패턴). do 명령은 네트워크
+    thread 가 큐에 넣고 **대기 루프가 회전 실행**(제어/모터는 절대 네트워크가 블록 안 함).
+  - `lib/decide_turn.py` — 판단층(순수, ev3dev2 없음). `decide_turn(command,params,state)` →
+    `(action, reason_code, detail)`, `target_degrees(action,params)`. PC import/테스트 가능.
+  - `lib/turns.py` — 구동층. `pivot()` 엔코더 **폴링 루프**(블로킹 호출 X → stop 즉시 반응).
+    모터 접근은 전부 hw 경유라 ev3dev2 직접 import 없음(가짜 hw 로 PC 테스트됨).
+  - `tests/test_stage2_logic.py` — 판단층 + pivot 단위 테스트.
+- **lib/hardware.py 최소 추가(Stage 1 drive/stop/__init__ 동작 수정 없음)**: `reset_encoders()`,
+  `read_encoders()`, `drive_raw()`(회전엔 트림 미적용), `beep_ok()`(best-effort, Sound 없어도 무해).
+- **라이브 params 4개**: `turn_speed`, `turn_90_factor`, `turn_180_factor`, `post_turn_settle_ms`
+  (6 이하). 좌·우 90° 는 하나의 계수로 시작(좌우 대칭 기대), 실기서 어긋나면 분리(§11).
+- **회전=엔코더 각도 기반**(시간 X). `BASE_PIVOT_DEG_90/180`(파일 상수, 가정 193/386°) × 보정계수.
+  배터리/마찰이 변해도 남는 변수는 보정계수 하나라 라이브로 그것만 만짐.
+- **reason_code**: `TURN_LEFT/RIGHT/UTURN`(DECISIONS.md 카탈로그에 이미 존재 → 추가 없음) +
+  `EMERGENCY_STOP`. detail 에 command/selected/rule/target_deg/factor/turn_speed/param_rev/
+  enc_l/enc_r/enc_avg/error_deg/stopped_early 포함(시작 의도 + 실제 결과 한 이벤트).
+- **telemetry**: `enc_l/enc_r/enc_avg/target_deg/turning`(+ 공통 t_ms/param_rev/running).
+- **인프라 버그 1건 수정(별도 관심사, 아래 별도 항목)**: `SharedParams.set` 의 MAX_STEP 비교가
+  부동소수로 정확히 한 스텝(예 `set turn_90_factor 1.05`)을 거부하던 것 → `+1e-9` 여유로 허용.
+- **정지**: 네트워크 stop → 플래그만 세팅(폴링 루프/대기 루프가 안전 시점에 처리), Ctrl-C 처리.
+  **BACK 버튼은 읽지도 할당하지도 않음.**
+- **PC 검증(통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py`,
+  `tests/test_stage2_logic.py`(decide/target_degrees 선형·미지명령·pivot 도달/방향/조기정지/
+  zero-target/params 4개), `lib/decide_turn.py`·`lib/turns.py` self-test, Stage 1 회귀
+  (`tests/test_stage1_logic.py`)·lib self-test 전부, 서버 통합 smoke(describe stage2·
+  do 큐/미지액션 거부·set 1스텝 허용/과스텝·범위 거부·stop).
+- **실기 검증 필요**: 위 "Stage 2 실기 검증 필요" 블록. **Stage 2 Done 아님**(좌·우·U 3회 연속
+  재현 전). Stage 3 이후 착수 금지.
+
+### 2026-06-30 — 인프라 SharedParams MAX_STEP 부동소수 경계 수정 (Agent: claude)
+- **증상**: `set turn_90_factor 1.05`(기본 1.0, MAX_STEP 0.05)가 거부됨 — `1.05-1.0`이 부동소수로
+  `0.05000000000000004`라 `> step` 에 걸림. 문서화된 보정 스텝(정확히 한 MAX_STEP)이 막히는 버그.
+- **수정**: `lib/shared_params.py` `set()` 의 스텝 비교를 `> step` → `> step + 1e-9`. 1e-9 는 어떤
+  param 단위에서도 무의미한 크기라 실제 과도 스텝은 그대로 거부. Stage 1/shared_params self-test 회귀 통과.
+- **이유를 먼저 적고 별도 관심사로 기록**(AGENTS.md): 인프라(codex)의 공용 도구라 Stage 2 구현과
+  분리해 둔다. 영향: 모든 스테이지의 set 경계가 더 견고해짐(특히 라이브 보정 스텝).
+
+
 - **실기 측정**: 중앙 컬러센서(`in2`) 반사광이 검은색에서 `0`, 흰색에서 `10`으로 관측됨.
 - **반영값**: `target_reflect=6` 정도가 적당해 보여 Stage 1 초기값에 반영. 기본 주행 속도는
   `base_speed=20`으로 반영.

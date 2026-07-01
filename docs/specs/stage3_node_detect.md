@@ -1,6 +1,6 @@
 # Stage 3 — 노드(분기) 감지 구현 명세
 
-> 상태: DRAFT (실기 미검증)
+> 상태: DRAFT (실기 미검증, **2026-07-01 아날로그 방식으로 개정 — §0 참조**)
 > 선행: Stage 1(라인트레이싱) 실기 Done — 이 단계는 Stage 1에서 확정한 **하드웨어/주행
 > 기반**(모터 부호 `left=base-turn`/`right=base+turn`, 속도 기조)은 유지하되, **주행 판단은
 > 좌·중·우 3센서 기반**(`decide_line3`)으로 한다. Stage 1 중앙센서 단일 PID 를 그대로 쓰지 않는다.
@@ -14,20 +14,57 @@
 
 ---
 
+## 0. 설계 개정 (2026-07-01) — bits+시간 → 아날로그 centroid + 총 어둠
+
+**배경(실기).** 센서 3개가 **딱 붙어 있고**(사진 확인) **선 폭 ≈ 센서 폭**이다. 이 배치에서:
+
+- 초기 설계(bits 를 threshold 로 자르고 `r-l` raw 차로 조향)는 정상 추종 중 좌/우 센서가
+  둘 다 흰 바닥이라 raw 차가 "흰색 읽는 값 불일치(상시 편향)"만 먹어 **시작하자마자 한쪽으로
+  꺾였다**(로그 `runs/2026-07-01T09-11-12`).
+- 조향을 bits 위치 오차로 1차 수정했으나, 근본 문제는 남는다: **`110`/`011`/`111` 이 주행 중에도
+  상시 뜬다**(선이 인접 센서로 넘침). 그래서 "이게 코너/분기냐 vs 잠깐 삐끗이냐"를 **시간 지속
+  (debounce)** 으로만 갈라야 했는데, 이는 속도 의존적이고 튜닝 트레이드오프가 크다.
+- 센서 간격은 **넓히지 않기로 확정**(넓히면 드리프트 때 선이 센서 사이 틈에 빠져 `000` 오탐).
+
+**개정 방향.** 붙어 있는 센서 어레이는 **아날로그(raw) centroid 라인트레이서의 정석 배치**다.
+bits(0/1)로 자르지 말고 raw 를 정규화해 서로 **직교하는 두 물리량**을 쓴다.
+
+1. **위치(무게중심) `pos`** = 세 센서의 "검은 정도" 가중 평균 위치 → **조향**.
+   선이 두 센서에 걸쳐도 걸친 비율만큼 연속값이 나와 부드럽고 편향이 없다.
+2. **총 어둠 `total`** = 세 센서 darkness 합(어레이 밑 검은 면적) → **노드 감지**.
+   - 드리프트: 선이 옆으로 옮겨갈 뿐 → `total` **보존(거의 일정)**, `pos` 만 이동.
+   - 노드(분기/교차/코너): 없던 검정이 추가됨 → `total` **급증**.
+   - 즉 **`total > 임계` = 노드**. "얼마나 오래 봤나(시간)"에 의존하지 않고 갈라진다.
+
+**bits 는 버리지 않는다.** telemetry/로그 가독용과 **노드 종류(어느 쪽 갈래)** 참고용으로만
+유지하고(그 정밀 구분과 회전은 Stage 5), **조향과 노드 트리거의 판단은 pos/total(아날로그)** 이 한다.
+
+**필수 선행: 센서별 흰/검 캘리브레이션.** 정규화하려면 센서마다 white/black 실측값이 있어야 한다.
+실측(2026-07-01 antigravity): **검≈(10,10,10) / 흰≈(75,64,75)** — 센서마다 흰색값이 다르다(중앙 64
+vs 옆 75). 이 값이 `sensor_darkness` 초기 시드가 되고, `do calibrate` 스윕으로 재확인·갱신(§5.3).
+
+> 이하 본문은 이 개정을 반영한다. 초기 bits+시간 설계 흔적(§구 `NodeDebouncer` 시간 기반 등)은
+> "구 방식"으로 표시하고 아날로그 방식으로 대체한다. 코드도 이 순서로 단계 이행(§10 체크리스트).
+
+---
+
 ## 1. 목표 / 범위
 
-**하는 것**
+**하는 것** (2026-07-01 아날로그 개정 반영 — §0)
 
-- **좌·중·우 3센서**의 반사광을 threshold 로 잘라 흑/백 **bits(`LCR`)**로 만든다.
-  - 약속: `1 = 검은 선(어두움)`, `0 = 흰 바닥(밝음)`. (반사광은 흰 바닥=큰 값, 검은 선=작은 값.)
-  - 예: `010`=직선 / `111`=십자/교차 / `110`·`011`=좌/우 코너·분기 / `000`=선 없음(막다른 길 후보).
-- bits 패턴으로 **분기·교차·막다른 길·코너**를 구분한다.
-- **좌·중·우 3센서 라인추종**(`decide_line3`)으로 "**선 따라가다 노드에서 멈춤**"까지 한다
-  (중앙센서가 라인 위, 좌/우가 보조: `010`=직진, 왼쪽이 더 검으면 왼쪽·오른쪽이 더 검으면
-  오른쪽 보정). Stage 1 중앙센서 단일 PID 를 그대로 재사용하지 않는다 — Stage 1 의 **부호/속도
-  기조만** 따른다.
-- 노드 확정 시 패턴·진입거리를 reason 로그로 남긴다(`NODE_CANDIDATE` / `NODE_CONFIRMED`).
-- **판단층(`classify_node`)을 순수 함수**로 둬, 기록한 센서로 **로봇 없이 재연**(`replay.py`)한다.
+- **좌·중·우 3센서**의 raw 반사광을 센서별 흰/검 캘리브레이션으로 **darkness(0~1)** 로 정규화한다.
+  - 약속: `darkness=1 = 완전 검은 선`, `0 = 흰 바닥`. (반사광은 흰 바닥=큰 값, 검은 선=작은 값.)
+- 세 darkness 로 두 직교량을 만든다:
+  - **`pos`(무게중심, −1~+1)** = 선의 좌우 위치 → **조향**(`decide_line3`, 아날로그 P).
+  - **`total`(darkness 합, 0~3)** = 어레이 밑 검은 면적 → **노드 감지**(`total>임계`).
+- `total` 로 **분기·교차·막다른 길·코너(=검은 면적이 넓거나 없음)** 를 감지한다. 드리프트는
+  `total` 이 보존돼 걸러진다(시간 지속 debounce 에 의존하지 않음).
+- **아날로그 centroid 라인추종**(`decide_line3`)으로 "**선 따라가다 노드에서 멈춤**"까지 한다.
+  Stage 1 중앙센서 단일 PID 를 재사용하지 않는다 — Stage 1 의 **부호/속도 기조만** 따른다.
+- 노드 확정 시 `total`·`pos`·bits·진입거리를 reason 로그로 남긴다(`NODE_CANDIDATE`/`NODE_CONFIRMED`).
+- **판단층(darkness/pos/total/`node_kind`)을 순수 함수**로 둬, 기록한 센서로 **로봇 없이 재연**(`replay.py`).
+- **bits(`LCR`)는 telemetry/로그 가독 + 노드 종류 참고용으로만** 유지한다(자동 threshold=흰/검 중간값).
+  - 예: `010`=직선 / `111`=십자 / `110`·`011`=좌/우 갈래 / `000`=선 없음. **조향/트리거 판단엔 안 씀.**
 
 **안 하는 것 (다음 단계로 미룸)**
 
@@ -41,98 +78,111 @@
 
 | 경로 | 내용 |
 |---|---|
-| `stages/stage3_node_detect.py` | 독립 실행 진입점. 초기 params/PARAM_LIMITS/MAX_STEP 상수, 라인추종 루프 + 노드 감지로 정지. |
-| `lib/nodes.py` (신규, 판단층, **순수**) | `bits_from_raw`, `classify_node`, `NodeDebouncer`, **`decide_line3`(3센서 follow)**. ev3dev2·시간·모터 없음. |
-| ~~`lib/linetrace.py`~~ (Stage 1 PID 재사용 안 함) | Stage 1 중앙센서 단일 PID 를 import 하지 않는다. 주행 판단은 `decide_line3`(좌/중/우). Stage 1 의 **부호/속도 기조만** 따른다. |
-| `lib/hardware.py` (기존) | `read_reflect()`(좌/중/우), `read_encoders()`(이동거리 추정). 재사용. |
-| `tools/replay.py` (기존, 인프라) | 기록한 samples 를 `classify_node` 에 재연. |
+| `stages/stage3_node_detect.py` | 독립 실행 진입점. 초기 params/LIMITS/STEP + follow/노드 상수, `do calibrate`/`follow` 루프. |
+| `lib/nodes.py` (판단층, **순수**) | **`sensor_darkness`, `line_position`, `total_darkness`, `decide_line3`(아날로그 centroid), `NodeDetector`(total 기반)**. + 로그용 `bits_from_raw`/`node_kind`/`bits_str`. ev3dev2·모터 없음. |
+| `lib/calib.py` (신규, 순수) | 센서별 흰/검 값 로드/저장·정규화 헬퍼. `do calibrate` 결과를 `config/stage3_calib.json` 에 묻는다. |
+| `lib/hardware.py` (기존) | `read_reflect()`(좌/중/우), `enc_avg()`(이동거리 추정), 캘리브레이션 스윕용 저속 pivot. 재사용. |
+| `tools/replay.py` (기존, 인프라) | 기록한 samples(reflect+calib)를 `decide_line3`/`NodeDetector` 에 재연. |
 
 **판단층 (순수, PC import·재연 가능) — `lib/nodes.py`**
 
 ```python
-def bits_from_raw(raw, thresholds):
-    """raw 반사광 3개(L,C,R)를 좌/중/우 threshold 로 잘라 0/1 비트로.
-       어두울수록(작을수록) 1=검은 선.  반환: (l, c, r) 0/1 튜플."""
-    return tuple(1 if v < t else 0 for v, t in zip(raw, thresholds))
+def sensor_darkness(raw, calib):
+    """raw 반사광 3개(L,C,R) → darkness 3개(0=흰,1=검). 센서별 흰/검으로 정규화.
+       calib = {"white": (wl,wc,wr), "black": (bl,bc,br)}.
+       d_i = clamp((white_i - raw_i) / (white_i - black_i), 0, 1).  분모≈0 방어."""
 
 
-def classify_node(bits, params, state):
-    """3센서 bits → 노드 종류 분류 (순수 함수, replay 대상이므로 부작용 없음).
+def line_position(dark):
+    """darkness (dL,dC,dR) → 무게중심 pos ∈ [-1,+1].  (센서 위치 -1/0/+1 가중)
+       pos = (dL*-1 + dR*+1) / (dL+dC+dR).  합≈0(선 없음)이면 None."""
 
-    반환: (kind, reason_code, detail)
-      kind        : 'LINE' | 'CORNER_L' | 'CORNER_R' | 'BRANCH' | 'CROSS' | 'DEAD_END'
-      reason_code : 'NODE_CANDIDATE' | 'CORNER_LEFT' | 'CORNER_RIGHT' | None(LINE)
-                    (확정은 NodeDebouncer 가 'NODE_CONFIRMED' 로 승격)
-      detail      : {"bits": "LCR 문자열", "reflect": (l,c,r)}
 
-    분류 규칙(약속, l/c/r 은 0/1):
-      010            -> LINE       (정상 라인, 노드 아님)
-      000            -> DEAD_END   (선 없음 = 막다른 길 후보)
-      110            -> CORNER_L / BRANCH (좌측 갈래)   ┐ 코너 vs 분기 구분은
-      011            -> CORNER_R / BRANCH (우측 갈래)   ┘ Stage3 에선 같은 'BRANCH'로
-      111 / 101      -> CROSS      (십자/교차, 직진 개통)
-    NOTE: '코너냐 분기냐(직진이 살아있나)'의 정밀 구분(peek)은 Stage5 에서 회전과 함께.
-          Stage3 은 'bits 패턴 종류'까지만 확정해 출력한다.
-    """
+def total_darkness(dark):
+    """darkness 합 ∈ [0,3]. 어레이 밑 검은 '면적' 지표(노드 감지의 핵심)."""
+
+
+def decide_line3(raw, calib, params, state):
+    """아날로그 centroid 라인추종 1틱(순수). 노드 확정 전 FOLLOW 조향.
+
+    pos = line_position(...). turn = clamp(follow_kp * pos, ±turn_limit).
+      부호(Stage 1 동일): pos>0(선이 오른쪽) → 오른쪽 보정 → turn<0 → left=base-turn(빠름).
+      pos is None(선 없음, total≈0) → 속도 0 + 직전 조향 유지(보수적, dead-end 는 NodeDetector 가).
+    반환 action(dict): {line, pos, total, turn, left, right}."""
+
+
+def node_kind(bits):
+    """bits(LCR, 로그/종류 참고용) → 'LINE'|'CORNER_L'|'CORNER_R'|'CROSS'|'DEAD_END'.
+       ⚠️ 조향/트리거 판단에는 쓰지 않는다(그건 pos/total). Stage5 종류 판정의 씨앗."""
 ```
 
 ```python
-class NodeDebouncer(object):
-    """노드 이벤트를 주행 흔들림 속에서 확정한다(순수, 시간은 ms/샘플로 받음).
+class NodeDetector(object):
+    """총 어둠(total) 기반 노드 감지 (순수, 거리는 mm/샘플로 받음 — 속도 무관).
 
-    같은 패턴(또는 같은 '노드 종류')이 node_confirm_ms 만큼 연속될 때만 NODE_CONFIRMED.
-    010(LINE) 이 끼면 카운트 리셋(통과 중 순간 흔들림 무시). 직전 확정 뒤
-    node_debounce_ms 안에는 재확정 금지(같은 노드 중복 감지 방지).
+    - total > node_total_on 이 node_confirm_mm 만큼 '거리로' 지속되면 NODE_CONFIRMED.
+      (구 NodeDebouncer 의 '같은 bits 가 node_confirm_ms 지속'을 대체 — 시간→거리, 패턴→면적.)
+    - total 이 node_total_on 아래로 내려가면 후보 리셋(드리프트/노이즈 무시).
+    - 직전 확정 뒤 node_debounce_mm 안에는 재확정 금지(같은 노드 중복 감지 방지).
 
-    push(bits, t_ms) -> ('NODE_CONFIRMED', detail) | ('NODE_CANDIDATE', detail) | (None, ...)
-      detail 에 bits, duration_ms, dist_mm(state 에서 받은 진입거리) 를 채워 준다.
+    push(dark, dist_mm, params) -> (status, info)
+      status : 'NODE_CONFIRMED' | 'NODE_CANDIDATE' | None
+      info   : {total, pos, bits, kind, run_mm(지속 거리), dist_mm, debounce_mm}
     """
 ```
 
-> 참고(이전 로봇 `run/solver.py`): `bits_from_raw`(threshold 로 자름), `event_kind`(JUNCTION/LEAF/None),
-> `ArrivalDebouncer`(pattern/kind 모드, leaf 를 더 보수적으로 확정)의 **구조**가 검증돼 있다.
-> 그 프로젝트는 시간기반이었고 단일 `config.py` 였다 — 여기서는 **구조만** 가져오고
-> threshold·confirm 은 이 단계의 라이브 params 로, 거리는 ms 가 아니라 **엔코더 dist_mm** 로 남긴다.
+> 참고(이전 로봇 `run/solver.py`): `event_kind`(JUNCTION/LEAF/None), `ArrivalDebouncer`(leaf 를 더
+> 보수적으로 확정)의 **구조**가 검증돼 있다. 그 프로젝트는 bits+시간·단일 `config.py` 였다 —
+> 여기서는 **아이디어만** 취하고, 감지는 **아날로그 total + 거리(dist_mm)** 로 바꿔 속도/편향에
+> 강하게 한다. (구 `NodeDebouncer`(bits+ms)는 이 개정으로 대체 — 코드는 §10 순서로 이행.)
 
-**구동층 (ev3dev2)**: 라인추종(Stage 1 `lib/linetrace.py`)과 `hardware`(`read_reflect`,
-`read_encoders`)만. Stage 3은 **새 모터 동작이 거의 없다**(노드에서 `stop` + `node_advance` 전진만).
+**구동층 (ev3dev2)**: `decide_line3`(아날로그)로 구동 + `hardware`(`read_reflect`, `enc_avg`).
+Stage 3은 **새 모터 동작이 거의 없다**(노드에서 `stop` + `node_advance` 전진, `do calibrate` 저속 스윕).
 
 ---
 
 ## 3. 라이브 params (6개 이하)
 
 이 단계 라이브 노출은 **6개**(딱 한도). 그 이상 필요해지면 검증된 값을 `config/` 로 내린다.
+**아날로그 개정(§0)으로 라이브 6개가 threshold 3개 → 조향/노드 손잡이로 교체된다.** 센서별 흰/검
+값은 라이브가 아니라 **캘리브레이션 상수**(config, `do calibrate` 로 확보)라 6개 한도를 안 먹는다.
 
 | 이름 | 의미 | 기본값 | LIMITS (min,max) | MAX_STEP | 올림/내림 |
 |---|---|---|---|---|---|
-| `thr_left` | 좌센서 흑/백 threshold(이 값보다 작으면 1=선) | 40 | (0, 100) | 3 | 좌센서가 흰 바닥을 선으로 오판 → ↓ / 선을 못 봄 → ↑ |
-| `thr_center` | 중앙센서 threshold | 40 | (0, 100) | 3 | 위와 동일(중앙) |
-| `thr_right` | 우센서 threshold | 40 | (0, 100) | 3 | 위와 동일(우) |
-| `node_confirm_ms` | 같은 패턴이 이만큼 지속돼야 노드 확정 | 120 | (20, 400) | 20 | 흔들림에 너무 일찍 확정 → ↑ / 노드에서 못 멈춤 → ↓ |
-| `node_debounce_ms` | 직전 확정 후 재확정 금지 시간(중복 방지) | 900 | (200, 2000) | 100 | 한 노드를 두 번 잡음 → ↑ / 가까운 두 노드를 하나로 → ↓ |
+| `follow_kp` | 조향 게인 (pos[-1..1] 당 turn) | 25 | (0, 80) | 5 | 흔들림/과조향 → ↓ / 곡선 못 따라감 → ↑ |
+| `follow_base_speed` | 직진 기본 속도(%) — Stage1 기조 | 20 | (5, 45) | 5 | 곡선에서 빠르면 ↓ |
+| `node_total_on` | **노드 트리거 임계**(darkness 합, 0~3) | 1.7 | (1.0, 3.0) | 0.2 | 직선에서 오탐 → ↑ / 노드 못 잡음 → ↓ |
+| `node_confirm_mm` | total>on 이 이 거리만큼 지속돼야 확정 | 8 | (2, 40) | 3 | 단발 스파이크 오탐 → ↑ / 노드 지나침 → ↓ |
+| `node_debounce_mm` | 직전 확정 후 재확정 금지 거리(중복 방지) | 60 | (10, 200) | 10 | 한 노드 두 번 → ↑ / 가까운 두 노드 하나로 → ↓ |
 | `node_advance` | **노드 확정 후 회전/색읽기 전 전진량(mm)** | 0 | (0, 60) | 5 | 정지 위치가 노드 못 미침 → ↑ / **오버슛(실패#1)** → ↓ |
 
-> **`node_advance` 가 이 단계의 핵심 보정 손잡이.** 실패 #1(분기/코너 오버슛으로 다음 라인 못 탐)을
-> 잡는 값이라 라이브 6개에 반드시 포함한다. Stage 3 자체는 회전을 안 하지만, `node_advance` 만큼
-> 전진한 뒤 멈춰 **그 자리에서의 bits/거리를 기록**해 두면 Stage 5 의 회전 위치 보정에 그대로 쓰인다.
+> **`node_total_on` 이 이 단계의 새 핵심 손잡이.** "검은 면적이 이만큼 넓으면 노드"라는 하나의
+> 물리 임계로 분기/교차/코너를 잡는다. 드리프트는 total 이 보존돼 여기 안 걸린다.
+> **`node_advance` 는 실패 #1(분기/코너 오버슛) 손잡이로 그대로 유지.** 확정 후 그 자리 bits/거리
+> 기록은 Stage 5 회전 위치 보정에 쓰인다.
 
-**좌/중/우 threshold 를 셋 다 노출하면 4개를 이미 쓴다.** 단일 threshold 로 시작하고
-필요할 때만 분리하는 선택지도 있으나, [LIVE_TUNING.md](../LIVE_TUNING.md) 기술결정 7 처럼
-"센서별로 특성이 다르다"가 검증돼 있어 **3개 분리로 시작**한다(이전 로봇도 좌/중/우 따로 잡음).
-
-**config/ 로 내리는 값(라이브 노출 안 함)**: `loop_delay`(Stage1 확정), `post_stop_settle_ms`,
-`node_advance_speed`(advance 전진 속도, 느리게 고정), 라인추종 PID(전부 Stage1 확정값).
+**config/ 로 내리는 값(라이브 노출 안 함)**: `loop_delay`(Stage1 확정), `follow_turn_limit`(35, Stage1
+기조), `advance_speed`(느리게 고정), `post_stop_settle_ms`, 그리고 **센서 캘리브레이션**
+(`config/stage3_calib.json`: 센서별 white/black — `do calibrate` 로 채움, §5.3).
 
 ```python
+INITIAL_PARAMS = {
+    "follow_kp": 25, "follow_base_speed": 20,
+    "node_total_on": 1.7, "node_confirm_mm": 8, "node_debounce_mm": 60, "node_advance": 0,
+}
 PARAM_LIMITS = {
-    "thr_left": (0,100), "thr_center": (0,100), "thr_right": (0,100),
-    "node_confirm_ms": (20,400), "node_debounce_ms": (200,2000), "node_advance": (0,60),
+    "follow_kp": (0,80), "follow_base_speed": (5,45),
+    "node_total_on": (1.0,3.0), "node_confirm_mm": (2,40),
+    "node_debounce_mm": (10,200), "node_advance": (0,60),
 }
 MAX_STEP = {
-    "thr_left": 3, "thr_center": 3, "thr_right": 3,
-    "node_confirm_ms": 20, "node_debounce_ms": 100, "node_advance": 5,
+    "follow_kp": 5, "follow_base_speed": 5,
+    "node_total_on": 0.2, "node_confirm_mm": 3, "node_debounce_mm": 10, "node_advance": 5,
 }
 ```
+
+> **왜 threshold 3개를 라이브에서 뺐나:** 아날로그에선 흰/검 정규화가 캘리브레이션 상수로 흡수돼
+> 라이브 튜닝이 필요 없다. bits 는 로그용이라 threshold=(white+black)/2 로 자동 유도(라이브 아님).
 
 ---
 
@@ -143,24 +193,30 @@ MAX_STEP = {
 | 키 | 의미 |
 |---|---|
 | `reflect` | 좌/중/우 raw 반사광 `(l,c,r)` |
-| `bits` | threshold 적용 후 "LCR" 문자열(예 `"110"`) |
+| `darkness` | 정규화 darkness `(dL,dC,dR)` 0~1 (캘리브레이션 적용) |
+| `pos` | 무게중심 위치 −1~+1 (조향 오차; 선 없음이면 `null`) |
+| `total` | darkness 합 0~3 (**노드 감지 지표**) |
+| `bits` | 로그 가독용 "LCR"(threshold=흰/검 중간, 판단엔 안 씀) |
+| `turn` / `left_speed` / `right_speed` | 조향/구동 출력 |
 | `enc_avg` | 누적 엔코더 평균(도) — dist_mm 환산용 |
 | `dist_mm` | 직전 노드(또는 시작) 이후 진행 거리(mm) |
-| `confirm_count` | 현재 패턴 연속 지속 카운트(디버그) |
+| `node_run_mm` | 현재 `total>on` 연속 지속 거리(디버그; 확정 판정) |
 
 **reason_code** (events.jsonl, [DECISIONS.md](../DECISIONS.md) 카탈로그와 일치)
 
 | reason_code | 언제 | detail |
 |---|---|---|
-| `LINE_FOLLOW` | PID 추종 중(주기 제한 로깅) | `reflect`, `error`, `turn` (Stage1에서 옴) |
-| `NODE_CANDIDATE` | 노드 후보(노드 패턴이 막 잡힘) | `bits`, `reflect`, `duration_ms` |
-| `NODE_CONFIRMED` | 노드 확정(멈춤) | `bits`, `duration_ms`, `debounce_ms`, `dist_mm` |
-| `CORNER_LEFT` / `CORNER_RIGHT` | 코너 패턴 확정(`110`/`011`) | `bits` |
-| `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구(000 이 DEAD_END 확정 전) | `lost_ms` |
+| `LINE_FOLLOW` | 아날로그 추종 중(주기 제한 로깅) | `reflect`, `pos`, `total`, `turn` |
+| `NODE_CANDIDATE` | 노드 후보(`total>node_total_on` 막 진입) | `total`, `pos`, `bits`, `reflect` |
+| `NODE_CONFIRMED` | 노드 확정(멈춤; total 이 confirm_mm 지속) | `total`, `bits`, `kind`, `run_mm`, `debounce_mm`, `dist_mm` |
+| `CORNER_LEFT` / `CORNER_RIGHT` | 확정 노드의 bits 가 `110`/`011`(종류 참고) | `bits` |
+| `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구(`total≈0` 이 DEAD_END 확정 전) | `total` |
 | `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | `source` |
+| `CALIBRATE` | `do calibrate` 스윕 완료(센서별 흰/검 저장) | `white`, `black` |
 
-> `dist_mm` 는 **엔코더에서 환산**한다(바퀴 지름 → 1도당 이동거리, Stage 0/2 측정값 사용).
+> `dist_mm`·`run_mm` 은 **엔코더에서 환산**한다(바퀴 지름 → 1도당 이동거리, Stage 0/2 측정값).
 > 실패 #1 진단의 핵심 필드이므로 `NODE_CONFIRMED` 에 반드시 채운다.
+> 노드 트리거는 `duration_ms`(시간)가 아니라 `run_mm`(거리)다 — 속도 무관(개정 §0).
 
 ---
 
@@ -168,57 +224,65 @@ MAX_STEP = {
 
 EV3 코드는 **Python 3.5 안전**(f-string 금지, `.format()`).
 
-### 5.1 제어 루프 (stage3_node_detect.py)
+### 5.1 제어 루프 (stage3_node_detect.py) — 아날로그 개정
 
 ```python
 def main():
     hw = Ev3Hardware()
     params = dict(INITIAL_PARAMS)
-    server = start_tuning_server(params, PARAM_LIMITS, MAX_STEP)
+    server = start_tuning_server(params, PARAM_LIMITS, MAX_STEP, actions=["follow","calibrate","nudge"])
     log = ReasonLogger()
-    deb = NodeDebouncer()                    # 순수 판정기
-    follow_state = make_follow_state()       # 3센서 follow 상태(last_turn 보관)
-    state = {"node_dist0_deg": 0}            # 직전 노드 이후 거리 기준점
+    calib = load_calib("config/stage3_calib.json")   # 센서별 white/black (없으면 안전 기본)
+    det = NodeDetector()                              # total 기반 순수 판정기
+    follow_state = make_follow_state()                # 조향 상태(last_turn 보관)
+    state = {"node_dist0_deg": 0}                     # 직전 노드 이후 거리 기준점
 
     hw.reset_encoders()
     while True:
         if server.stop_requested():
             hw.stop(); log.event("EMERGENCY_STOP", source="NET"); break
-        snap = server.snapshot_params()      # 네트워크는 제어를 블록하지 않음
-        t_ms = now_ms()
+        if server.pending("calibrate"):
+            calib = run_calibration(hw, log); save_calib("config/stage3_calib.json", calib)
+            continue
+        snap = server.snapshot_params()               # 네트워크는 제어를 블록하지 않음
 
-        raw = hw.read_reflect()              # (l,c,r)
-        thr = (snap["thr_left"], snap["thr_center"], snap["thr_right"])
-        bits = bits_from_raw(raw, thr)
+        raw = hw.read_reflect()                       # (l,c,r)
+        dark = sensor_darkness(raw, calib)            # (dL,dC,dR) 0~1
+        pos = line_position(dark)                     # -1~+1 또는 None(선 없음)
+        total = total_darkness(dark)                  # 0~3
+        bits = bits_from_raw(raw, calib_mid(calib))   # 로그용만
         dist_mm = deg_to_mm(hw.enc_avg() - state["node_dist0_deg"])
 
-        kind, reason, detail = classify_node(bits, snap, state)
-        status, info = deb.push(bits, t_ms, snap, dist_mm)
+        status, info = det.push(dark, dist_mm, snap)  # total>on 이 confirm_mm 지속?
 
         if status == "NODE_CANDIDATE":
-            log.event("NODE_CANDIDATE", bits=info["bits"], reflect=raw,
-                      duration_ms=info["duration_ms"])
+            log.event("NODE_CANDIDATE", total=total, pos=pos, bits=bits_str(bits), reflect=raw)
+            drive_follow(hw, raw, calib, snap, follow_state)   # 후보 단계도 노드 중심까지 추종
         elif status == "NODE_CONFIRMED":
-            # 노드 위에서 멈춤 (이 단계의 목표). 회전은 안 함.
-            hw.stop()
-            if kind in ("CORNER_L",):  log.event("CORNER_LEFT", bits=info["bits"])
-            if kind in ("CORNER_R",):  log.event("CORNER_RIGHT", bits=info["bits"])
-            log.event("NODE_CONFIRMED", bits=info["bits"], duration_ms=info["duration_ms"],
-                      debounce_ms=snap["node_debounce_ms"], dist_mm=info["dist_mm"])
+            hw.stop()                                 # 노드 위에서 멈춤(회전은 Stage5)
+            k = node_kind(bits)
+            if k == "CORNER_L": log.event("CORNER_LEFT", bits=bits_str(bits))
+            if k == "CORNER_R": log.event("CORNER_RIGHT", bits=bits_str(bits))
+            log.event("NODE_CONFIRMED", total=total, bits=bits_str(bits), kind=k,
+                      run_mm=info["run_mm"], debounce_mm=snap["node_debounce_mm"], dist_mm=dist_mm)
             advance(hw, snap["node_advance"])         # 확정 후 전진량(실패#1 손잡이)
-            hw.beep_ok()                              # 사람 인지
-            state["node_dist0_deg"] = hw.enc_avg()    # 거리 기준점 갱신(debounce 와 함께)
-            wait_or_stop(hw)                          # 다음 노드 보러 계속 / 또는 정지(운용 선택)
+            hw.beep_ok()
+            state["node_dist0_deg"] = hw.enc_avg()    # 거리 기준점 갱신(debounce_mm 와 함께)
+            wait_or_stop(hw)                          # 1노드1정지 / 연속(운용 선택)
         else:
-            # 노드 아니면 3센서 라인추종 계속(중앙센서 단일 PID 아님).
-            # 구동층이 follow 상수를 snap 에 병합해 넘긴다(lib↔stages 순환 방지).
-            follow_p = merge(snap, FOLLOW_CONSTS)
-            action = decide_line3(raw, bits, follow_p, follow_state)
-            hw.drive(action["left"], action["right"])
+            drive_follow(hw, raw, calib, snap, follow_state)   # 아날로그 centroid 추종
 
-        push_telemetry(server, reflect=raw, bits=bits_str(bits),
-                       dist_mm=dist_mm, enc_avg=hw.enc_avg(), confirm_count=deb.count)
+        push_telemetry(server, reflect=raw, darkness=dark, pos=pos, total=total,
+                       bits=bits_str(bits), dist_mm=dist_mm, enc_avg=hw.enc_avg(),
+                       node_run_mm=info.get("run_mm", 0))
         sleep(snap_loop_delay)
+
+
+def drive_follow(hw, raw, calib, snap, follow_state):
+    follow_p = merge(snap, FOLLOW_CONSTS)             # follow_turn_limit 등 config 상수 병합
+    action = decide_line3(raw, calib, follow_p, follow_state)
+    hw.drive(action["left"], action["right"])
+    maybe_follow_log(action)                          # LINE_FOLLOW 주기 로깅(pos/total/turn)
 ```
 
 ### 5.2 노드 확정 후 전진 (구동, 짧고 느리게)
@@ -242,41 +306,81 @@ def advance(hw, node_advance_mm):
 > 같은 ms 였는데, 배터리/마찰에 흔들려 오버슛을 만들었다. 거리 기반이면 보정 손잡이가 하나로
 > 줄고 replay 에서도 dist_mm 로 바로 검증된다.
 
+### 5.3 센서 캘리브레이션 (`do calibrate`) — 아날로그의 필수 선행
+
+정규화(`sensor_darkness`)에 센서별 흰/검 값이 있어야 한다. 로그상 센서마다 흰색 읽는 값이
+제각각(중앙 10 vs 옆 5~6, 다른 때 20/14)이라 **고정값으로는 total/pos 가 틀어진다.** 버튼을
+쓰지 않으므로(규칙) `do calibrate` 트리거로 로봇이 스스로 스윕해 센서별 min(검)/max(흰)을 잡는다.
+
+```python
+def run_calibration(hw, log):
+    """제자리 저속 pivot 으로 좌우로 살짝 쓸며 각 센서가 흑·백을 모두 지나게 한다.
+       스윕 동안 센서별 min(=검은 선)·max(=흰 바닥) raw 를 기록. 회전은 작게(±).
+       ⚠️ 시작 시 어레이가 선 위(중앙이 선)에 있어야 세 센서가 흑·백을 다 본다."""
+    lo = [999, 999, 999]; hi = [0, 0, 0]
+    hw.pivot_slow(+1)                     # 오른쪽으로 살짝
+    for _ in range(sweep_ticks):
+        r = hw.read_reflect(); update_min_max(lo, hi, r); sleep(0.01)
+    hw.pivot_slow(-1)                     # 왼쪽으로 되돌며(원위치 지나 반대까지)
+    for _ in range(2 * sweep_ticks):
+        r = hw.read_reflect(); update_min_max(lo, hi, r); sleep(0.01)
+    hw.pivot_slow(+1)                     # 대략 원위치 복귀
+    for _ in range(sweep_ticks):
+        r = hw.read_reflect(); update_min_max(lo, hi, r); sleep(0.01)
+    hw.stop()
+    calib = {"white": tuple(hi), "black": tuple(lo)}
+    log.event("CALIBRATE", white=calib["white"], black=calib["black"])
+    return calib
+```
+
+> **검증 포인트**(스윕 후 telemetry 로): 중앙을 선 위에 두면 `dark≈(0,1,0)`, `pos≈0`, `total≈1`.
+> 흰 바닥에선 `total≈0`. 교차/분기 위에선 `total≥2`. 이 값이 안 나오면 스윕 각/속도(config)나
+> 센서 높이를 손본다. 캘리브레이션 값은 `config/stage3_calib.json` 에 저장돼 재시작에도 유지된다.
+> 조명이 바뀌면 다시 `do calibrate`.
+
 ---
 
 ## 6. 대시보드 / CLI 연동
 
 ```bash
-python tools/robotctl.py do follow         # 선 따라가다 노드에서 멈추는 1세트 실행
-python tools/robotctl.py do nudge 10        # 10mm 전진(노드 확정 위치 미세 확인)
+python tools/robotctl.py do calibrate       # 센서 흰/검 스윕 → config/stage3_calib.json (먼저!)
+python tools/robotctl.py do follow          # 선 따라가다 노드에서 멈추는 1세트 실행
+python tools/robotctl.py do nudge 10         # 10mm 전진(노드 확정 위치 미세 확인)
+python tools/robotctl.py set node_total_on 1.9
+python tools/robotctl.py set follow_kp 20
 python tools/robotctl.py set node_advance 8
-python tools/robotctl.py set thr_left 38
-python tools/robotctl.py set node_confirm_ms 100
 python tools/robotctl.py stop               # 네트워크 정지
-python tools/robotctl.py save               # config/stage3.json 저장
-python tools/replay.py runs/<ts> --set node_advance=8 node_confirm_ms=100
+python tools/robotctl.py save               # config/stage3.json 저장(라이브 6개)
+python tools/replay.py runs/<ts> --set node_total_on=1.9 node_confirm_mm=6
 ```
 
-TUI 권장 키: `f`=do follow, `[`/`]`=node_advance ∓/±, `c`/`C`=node_confirm_ms,
-`1`/`2`/`3`=좌/중/우 threshold 선택 후 `-`/`+`, `s`=STOP. 화면에 현재 `bits`·`dist_mm` 상시 표시.
+TUI 권장 키: `k`=do calibrate, `f`=do follow, `[`/`]`=node_advance ∓/±,
+`t`/`T`=node_total_on ∓/±, `p`/`P`=follow_kp ∓/±, `s`=STOP.
+화면에 현재 `pos`·`total`·`bits`·`dist_mm` 상시 표시.
 
 ---
 
 ## 7. 보정 절차 (실기, 한 번에 변수 하나)
 
-1. **threshold 부터.** 흰 바닥 / 검은 선 위에 각 센서를 두고 `reflect` raw 를 telemetry 로 본다.
-   좌/중/우 각각 흑·백 중간값으로 `thr_left/center/right` 설정. **한 센서씩** 맞춘다.
-   - 검증: 직선(`010`), 십자(`111`), 막다른길(`000`)에 올려두면 기대 bits 가 나와야 한다.
-2. **`node_confirm_ms`.** 천천히 주행시켜 직선 구간에서 **오감지(`NODE_*`)가 없는** 최소값을
-   찾는다. 흔들림에 일찍 확정되면 ↑, 노드에서 못 멈추면 ↓. (한 번에 이 값만.)
-3. **`node_debounce_ms`.** 한 노드를 두 번 잡으면 ↑, 가까운 두 노드를 하나로 합치면 ↓.
+0. **캘리브레이션 먼저(`do calibrate`).** 어레이 중앙을 선 위에 두고 실행 → 센서별 흰/검 저장.
+   검증(telemetry): 중앙만 선 위 `dark≈(0,1,0)`/`pos≈0`/`total≈1`, 흰 바닥 `total≈0`,
+   교차 위 `total≥2`. 안 나오면 스윕 각/센서 높이 손봄. **이게 안 되면 아래 전부 무의미.**
+1. **`follow_kp`(조향).** `do follow` 로 직선에서 곧게(`pos≈0`, `turn≈0`) 가는지, 걸침에도
+   부드럽게 되돌아오는지 telemetry `pos`/`turn` 으로 본다. 과조향/흔들림이면 ↓, 곡선 못
+   따라가면 ↑. **한 값만.** (곡선에서 빠르면 `follow_base_speed` ↓ — 이것도 하나만.)
+2. **`node_total_on`(노드 트리거).** 직선 구간을 주행시켜 **오감지(`NODE_*`) 없는** 최소 위로
+   올린다. 드리프트에서 total 이 얼마까지 튀는지(대개 <1.3) 보고 그 위, 노드 total(≥2) 아래로.
+   직선 오탐 → ↑ / 노드 못 잡음 → ↓. (replay 로 먼저 확인 가능 — §9.)
+3. **`node_confirm_mm` / `node_debounce_mm`.** 단발 스파이크 오탐이면 confirm ↑. 한 노드를 두 번
+   잡으면 debounce ↑, 가까운 두 노드를 하나로 합치면 ↓. (한 번에 하나.)
 4. **`node_advance`(핵심).** 노드 확정 후 멈춘 위치를 본다. `NODE_CONFIRMED` 의 `dist_mm` 와
    실제 멈춤 위치를 비교 — **오버슛이면 `node_advance` 만 내린다**(실패 #1). 모자라면 올린다.
-5. 모든 노드 종류(직선/좌·우 분기/T/십자/막다른길)에서 노드 위 정지 + 올바른 bits 출력 →
-   `save` → `config/stage3.json`. PROGRESS 갱신.
+5. 모든 노드 종류(직선/좌·우 분기/T/십자/막다른길)에서 노드 위 정지 + 올바른 종류 →
+   `save` → `config/stage3.json`(라이브 6개). PROGRESS 갱신.
 
 > 만질 값은 **로그가 짚는 것만**([DECISIONS.md](../DECISIONS.md) 6장): `dist_mm` 크면 `node_advance`,
-> 특정 센서만 bits 가 틀리면 그 센서 threshold. 감으로 여러 개 동시에 안 만진다.
+> 직선에서 `total` 튀면 `node_total_on`, `pos`/`turn` 흔들리면 `follow_kp`. 여러 개 동시에 안 만진다.
+> **센서 자체가 이상하면(특정 센서 darkness 편향) 값 튜닝 말고 `do calibrate` 다시.**
 
 ---
 
@@ -303,61 +407,71 @@ TUI 권장 키: `f`=do follow, `[`/`]`=node_advance ∓/±, `c`/`C`=node_confirm
 
 | 증상 | 로그/필드 | 고칠 값 |
 |---|---|---|
-| 직선인데 노드로 오감지 | `bits` 가 직선에서 `110`/`011` 로 튐 | 해당 센서 threshold(흰 바닥을 선으로 봄) / `node_confirm_ms` ↑ |
-| 노드인데 못 멈춤 | `confirm_count` 가 confirm 도달 못 함 | `node_confirm_ms` ↓ / 주행 속도(Stage1) 점검 |
-| 막다른길(000)을 라인 유실로 흘림(또는 반대) | `LINE_LOST` 빈발, `bits=000` 짧게 | 000 은 분기보다 보수적으로(leaf 확정 더 길게) — confirm/유실시간 조정 |
-| 한 노드 두 번 감지 | `NODE_CONFIRMED` 가 짧은 간격 2회 | `node_debounce_ms` ↑ |
-| 센서 하나만 항상 틀림 | 그 센서 `reflect` 분포가 다름 | 그 센서 threshold 만 조정(기술결정 7) |
+| 직선인데 노드로 오감지 | 직선에서 `total` 이 자주 `node_total_on` 넘김 | `node_total_on` ↑ / `node_confirm_mm` ↑ / (편향이면 `do calibrate`) |
+| 노드인데 못 멈춤 | 노드 위 `total` 이 `node_total_on` 못 넘음 | `node_total_on` ↓ / 캘리브레이션 재실행(정규화 이상) |
+| 시작하자마자 한쪽 꺾임 | 직선인데 `pos≠0`(선 위인데 편향) | `do calibrate` 다시(센서 흰/검 불일치) / 그래도면 조향 부호 점검 |
+| 막다른길(`total≈0`)을 순간유실로 흘림 | `LINE_LOST` 빈발, `total≈0` 짧게 | dead-end 는 보수적으로 — `node_confirm_mm`(0 지속) 조정 |
+| 한 노드 두 번 감지 | `NODE_CONFIRMED` 가 짧은 거리 2회 | `node_debounce_mm` ↑ |
+| 센서 하나만 darkness 편향 | 그 센서 `darkness` 가 흰/검에서 이상 | 값 튜닝 말고 `do calibrate` 재실행(높이/스윕 점검) |
 
 ---
 
 ## 9. PC 검증
 
-- `python3 -m py_compile stages/stage3_node_detect.py lib/nodes.py`
-  (ev3dev2/라인추종 구동 import 는 `__main__`/메서드 안.)
+- `python3 -m py_compile stages/stage3_node_detect.py lib/nodes.py lib/calib.py`
+  (ev3dev2/구동 import 는 `__main__`/메서드 안.)
 - **판단층 단위 테스트** (`lib/nodes.py`, 순수, 매우 중요 — replay 대상):
-  - `bits_from_raw((80,80,80),(40,40,40)) == (0,0,0)`(밝음=0),
-    `bits_from_raw((10,80,10),(40,40,40)) == (1,0,1)`.
-  - `classify_node((0,1,0),..)→LINE` / `(1,1,1)→CROSS` / `(0,0,0)→DEAD_END` /
-    `(1,1,0)→BRANCH`(또는 CORNER_L) / `(0,1,1)→BRANCH`(CORNER_R).
-  - `NodeDebouncer`: `010` 만 들어오면 절대 확정 안 함;
-    `110` 이 `node_confirm_ms` 미만이면 CANDIDATE, 도달하면 CONFIRMED;
-    확정 후 `node_debounce_ms` 안의 재패턴은 무시; 중간에 `010` 끼면 카운트 리셋.
-- **replay 시나리오**: 기록한 run 으로
-  `replay.py runs/<ts> --set node_confirm_ms=80 node_advance=8` 가 events 를 다시 만들어
+  - `sensor_darkness`: 흰(raw=white)→0, 검(raw=black)→1, 중간→0.5 부근. 분모≈0 방어(clamp).
+  - `line_position`: `(0,1,0)→0`, `(1,0,0)→-1`, `(0,0,1)→+1`, `(1,1,0)→-0.5`; `(0,0,0)→None`.
+  - `total_darkness`: `(0,1,0)→1`, `(1,1,1)→3`, `(0,0,0)→0`.
+  - **드리프트 vs 노드(핵심 회귀)**: 선을 옆으로 옮긴 darkness 열은 `total` 보존·`pos`만 이동 →
+    NodeDetector 가 확정 안 함. 옆에 검정 추가한 열은 `total` 급증 → 확정.
+  - `NodeDetector`: `total<on` 만 오면 확정 없음; `total>on` 이 `node_confirm_mm` 미만이면
+    CANDIDATE, 도달하면 CONFIRMED; 확정 후 `node_debounce_mm` 안은 무시; total 내려가면 리셋.
+  - `bits_from_raw`/`node_kind`(로그용): `(0,1,0)→LINE`, `(1,1,1)→CROSS`, `(0,0,0)→DEAD_END`.
+- **replay 시나리오**: 기록한 run(reflect+calib)으로
+  `replay.py runs/<ts> --set node_total_on=1.9 node_confirm_mm=6` 가 events 를 다시 만들어
   확정 시점/개수가 바뀌는지 출력. (실패 #1 진단 8절과 동일 흐름을 로봇 없이.)
 
 ---
 
 ## 10. 구현 체크리스트 (이어받는 사람/에이전트용 TODO)
 
-- [ ] `lib/nodes.py`: `bits_from_raw`, `classify_node`, `NodeDebouncer` (순수, ev3dev2 import 금지).
-- [ ] `lib/hardware.py`: `read_reflect()` 확인/추가(좌/중/우), `enc_avg()`·`deg_to_mm` 환산 헬퍼.
-- [ ] `stages/stage3_node_detect.py`: 초기 params/LIMITS/STEP 상수, 라인추종(Stage1) import,
-      제어 루프 + 노드 확정 정지 + `advance`.
-- [ ] reason_code `NODE_CANDIDATE/NODE_CONFIRMED/CORNER_LEFT/CORNER_RIGHT` events 전송(detail 포함).
-- [ ] telemetry `reflect/bits/dist_mm/enc_avg/confirm_count` 추가.
-- [ ] `tools/replay.py` 가 `lib/nodes.py` 의 같은 함수로 재연하는지 확인.
-- [ ] PC: py_compile + `lib/nodes.py` 단위 테스트 + replay 시나리오 1개.
-- [ ] 실기: threshold→confirm→debounce→node_advance 순 보정, 모든 노드 종류 정지/출력 확인,
-      `save`, PROGRESS 갱신("실기 검증 필요"→결과).
+**아날로그 개정(§0) 이행 순서 — 한 단계씩 PC검증→실기확인.** 각 단계가 "한 번에 변수 하나".
+
+- [ ] **1단계 캘리브레이션.** `lib/calib.py`(순수: 정규화·load/save), `lib/hardware.py` 에
+      `pivot_slow`/스윕. `stages/`: `do calibrate` → `config/stage3_calib.json`. telemetry `darkness/pos/total`.
+      실기: 중앙 선 위 `dark≈(0,1,0)`, 흰 `total≈0`, 교차 `total≥2` 확인.
+- [ ] **2단계 아날로그 조향.** `lib/nodes.py`: `sensor_darkness`/`line_position`/`total_darkness` +
+      `decide_line3`(pos 기반 P)로 교체. `bits_from_raw`/`node_kind`/`bits_str` 는 로그용 유지.
+      PC: 위 §9 단위테스트. 실기: 직선 곧게·걸침 복귀(`do follow`, 노드 감지 임시 off/느슨).
+- [ ] **3단계 노드 감지(total).** `NodeDetector`(total>on 이 confirm_mm 지속, debounce_mm) 신설,
+      구 `NodeDebouncer`(bits+ms) 대체. `stages/` 제어 루프를 §5.1 형태로. reason_code
+      `NODE_CANDIDATE/NODE_CONFIRMED/CORNER_LEFT/CORNER_RIGHT/CALIBRATE`(detail 포함).
+- [ ] 라이브 params 6개 교체(§3): `follow_kp/follow_base_speed/node_total_on/node_confirm_mm/`
+      `node_debounce_mm/node_advance`. telemetry `reflect/darkness/pos/total/bits/dist_mm/node_run_mm`.
+- [ ] `tools/replay.py` 가 `lib/nodes.py` 의 `decide_line3`/`NodeDetector` 로 재연(reflect+calib) 확인.
+- [ ] PC: py_compile + `lib/nodes.py` 단위테스트 + replay 시나리오 1개.
+- [ ] 실기 보정(§7): calibrate→follow_kp→node_total_on→confirm/debounce→node_advance,
+      모든 노드 종류 정지/출력 확인, `save`, PROGRESS 갱신("실기 검증 필요"→결과).
 
 ---
 
 ## 11. 미해결 / 실기 확인 필요
 
-- **bits 극성 약속(1=선)**: 본 명세는 `1=검은 선`으로 통일(STAGES.md 예시와 일치). 코드 전반·
-  단위테스트가 이 약속을 따르는지 일관 확인.
-- **`deg_to_mm` 환산 계수**: 바퀴 지름이 있어야 1도당 mm 가 나온다. Stage 0/2 에서 실측 후 채움.
-  미확정이면 `dist_mm` 대신 `enc_avg`(도)만 우선 기록하고, 계수 확정 후 환산(보정 손잡이는 동일).
-- **코너 vs 분기 구분 시점**: Stage3 은 `110`/`011` 을 `BRANCH`(또는 CORNER_*)로 같이 출력.
-  "직진이 살아있는 분기"인지 "꺾이는 코너"인지의 정밀 구분(peek 전진 확인)은 Stage5 로 미룸 —
-  여기서 미리 하면 회전이 없어 검증이 안 된다.
-- **`node_advance` 기본값 0**: 회전이 없는 Stage3 에서는 0(제자리 정지)이 안전하다. 단,
-  Stage5 회전을 위한 멈춤 위치 데이터를 모으려면 작은 값으로 실험할 수 있다 — 실기에서 결정.
-- **000(막다른 길) vs 라인 순간 유실**: 이전 로봇은 leaf 를 junction 보다 보수적으로(샘플 더 많이)
-  확정했다. 여기선 `node_confirm_ms` 하나로 갈지, 000 전용 confirm 을 따로 둘지 실기로 결정
-  (라이브 6개 한도 때문에 우선 단일 confirm + 라인유실 시간으로 시작).
-- **`do follow` 정지/계속 정책**: 노드에서 멈춘 뒤 그대로 정지할지, beep 후 다음 노드까지
-  계속 갈지(운용 편의). 보정 루프에선 "1노드 1정지"가 편하나 코스 통과 확인엔 연속이 편하다 —
-  토글로 둘지 실기에서 판단.
+- **캘리브레이션 스윕 방식(§5.3)**: 제자리 pivot 으로 세 센서가 흑·백을 다 지나게 하는 게 실기에서
+  깔끔한지(각도/속도/시작 위치), 아니면 짧은 전후진 등 다른 스윕이 나은지 실기 확인. 시작 시
+  어레이가 선 위에 있어야 함(안내 필요). 조명 변하면 재실행.
+- **`node_total_on` 기본값 1.7 / 임계 방식**: 드리프트 total 상한과 노드 total 하한 사이가 실제로
+  벌어지는지(마진) 실기 확인. 너무 붙으면 `pos` 안정도(어레이가 검은 영역 안에 잘 머무나)나 센서
+  높이로 마진을 벌린다. 히스테리시스(on/off 분리)가 필요할지도 실기로 결정.
+- **`deg_to_mm` 환산 계수**: 바퀴 지름이 있어야 1도당 mm 가 나온다(`node_confirm_mm`/`node_advance`
+  가 거리 기반이라 중요). Stage 0/2 실측 후 채움. 미확정이면 상대 비교로 쓰되 계수 확정 후 갱신.
+- **코너 vs 분기 구분 시점**: Stage3 은 `total` 로 "노드 있음"까지만. bits(`110`/`011`)로 **어느 쪽**
+  갈래인지 참고는 남기되, "직진이 살아있나(분기)" vs "꺾이나(코너)"의 정밀 구분(peek)은 Stage5.
+- **`node_advance` 기본값 0**: 회전 없는 Stage3 에선 0(제자리)이 안전. Stage5 회전용 멈춤 위치
+  데이터를 모으려면 작은 값 실험 가능 — 실기 결정.
+- **dead-end(`total≈0`) vs 라인 순간 유실**: total 이 0 근처로 얼마나(거리) 지속되면 DEAD_END 로
+  볼지 실기 확인. leaf 를 junction 보다 보수적으로 볼지도(라이브 6개 한도 안에서) 결정.
+- **`do follow` 정지/계속 정책**: 1노드 1정지 vs 연속(토글). 보정엔 1정지가, 코스 통과엔 연속이 편함.
+- **`bits_from_raw` 로그용 threshold**: (white+black)/2 자동 유도가 무난한지, 로그 가독이 충분한지 확인.

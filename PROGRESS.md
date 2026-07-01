@@ -78,41 +78,47 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       `lib/hardware.py`(좌/우 반사광 + enc_avg 추가만), `tests/test_stage3_logic.py`. [claude]
 - [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
 
-### Stage 3 실기 검증 필요 (다음에 브릭에서 할 일) — 한 번에 변수 하나
+### Stage 3 — 아날로그 개정 구현 계획 (2026-07-01, 문서 완료 / 코드 미착수)
 
-> 보정 루프: 노트북에서 `robotctl do follow` → 선 따라가다 노드에서 1정지 → 값 하나만
-> 고치고 다시 `do follow`. 만질 값은 **로그가 짚는 것만**(DECISIONS.md 6장).
+> **설계 결정**: 센서 3개가 붙어 있고(간격 고정 — 넓히면 000 오탐) 선폭≈센서폭이라, bits+시간
+> 방식은 `110`/`011` 이 주행 중 상시 떠서 노드/드리프트 구분이 근본적으로 어렵다. **아날로그로
+> 전환**: raw 를 센서별 흰/검으로 정규화(darkness 0~1) → **무게중심 `pos`(조향)** 과 **총 어둠
+> `total`(노드 감지)** 이라는 직교 두 물리량 사용. 드리프트는 total 보존(선이 옆으로 옮길 뿐),
+> 노드는 total 급증(검은 면적 추가) → **시간 지속 debounce 없이** 갈린다. 상세: spec §0.
+> ※ 사용자가 실측한 threshold 중간값(좌43/중36/우42)은 센서별 흰/검 midpoint 로, 캘리브레이션
+>   초기 참고값이 된다(센서마다 다름을 재확인). 아날로그에선 이 midpoint 로 bits 를 자동 유도.
 
-0. **3센서 추종 거동 먼저 확인(decide_line3).** 직선(`010`)에서 `turn≈0`(좌=우)으로 곧게 가는지,
-   왼쪽이 더 검을 때(`110`/`100`) 왼쪽으로, 오른쪽이 더 검을 때(`011`/`001`) 오른쪽으로 도는지
-   telemetry `bits`/`line_error3`/`turn`/`left_speed`/`right_speed` 로 본다. 흔들리거나 과조향이면
-   **`FOLLOW_GAIN` 한 값만** 내리고(반대면 올리고) 재배포(라이브 아님 — 파일 상단 Stage 3 상수).
-   곡선을 못 따라가면 `FOLLOW_BASE_SPEED`↓ 또는 `FOLLOW_GAIN`↑ 중 **하나만**. 노드 후보(`111`/`101`)
-   에서 너무 빠르면 `FOLLOW_SLOW_SPEED`↓. 이 거동이 안정된 뒤 1번 threshold 보정으로 넘어간다.
-1. **threshold 부터(센서별 1개씩).** 흰 바닥/검은 선에 각 센서를 두고 telemetry `reflect_l/c/r`
-   raw 를 본다. **좌/우 센서(in1/in3)는 미실측** — Stage 1 중앙 실측(검정 0/흰색 10)을 따라
-   `left/center/right_threshold` 기본 5로 시작했다. 흑·백 중간으로 한 센서씩 맞춘다.
-   검증: 직선(`010`), 십자(`111`), 막다른길(`000`)에 올려두면 기대 bits 가 나와야 한다.
-2. **`node_confirm_ms`.** 직선 구간에서 오감지(`NODE_*`) 없는 최소값. 일찍 확정되면 ↑,
-   노드에서 못 멈추면 ↓. (replay 로 confirm 영향 먼저 확인 가능 — 아래.)
-3. **`node_debounce_ms`.** 한 노드 두 번 잡으면 ↑, 가까운 두 노드 하나로 합치면 ↓.
-4. **`node_advance`(핵심, 실패#1).** `NODE_CONFIRMED` 의 `dist_mm` 와 실제 멈춤 위치 비교 —
-   오버슛이면 `node_advance` 만 내린다. 모자라면 올린다. confirm 과 동시에 만지지 않는다.
-5. **`deg_to_mm` 환산계수**: `WHEEL_DIAM_MM=56` 은 가정(Stage2 와 동일). 줄자로 바퀴지름 실측
-   후 stage3 상수 갱신(미확정이면 `dist_mm` 는 상대 비교용). [§11]
-6. 모든 노드 종류(직선/좌·우 분기/T/십자/막다른길) 노드 위 정지 + 올바른 bits → `save`
-   → `config/stage3.json`. **그 전에는 Stage 3 Done 으로 표시하지 않는다.**
+**구현 3단계 (한 단계씩 PC검증→실기확인, 각 단계가 "한 번에 변수 하나")**
 
-| 미확정 상수/값 | 위치 | 현재값 | 확정 방법 |
-|---|---|---|---|
-| `left/center/right_threshold` 기본 | stage3 INITIAL_PARAMS | 43 / 36 / 42 | 2026-07-01 사용자가 전달한 raw 실측값 기준 중간값 계산해 반영 완료 |
-| `WHEEL_DIAM_MM`(deg→mm) | stage3 상수 | 56.0(가정) | 줄자 실측 후 갱신 |
-| `ADVANCE_SPEED` | stage3 상수 | 15 | advance 가 느리고 안정적인지 실기 확인 |
-| `CONTINUE_AFTER_NODE` | stage3 상수 | False(1노드 1정지) | 코스 연속 통과 확인 시 True 검토 |
-| `FOLLOW_GAIN` | stage3 상수 | 12.0 | bits 위치 오차(±1/±2)당 turn. 과조향/흔들림이면 ↓, 곡선 못 따라가면 ↑(한 값만) |
-| `FOLLOW_BASE_SPEED` | stage3 상수 | 20 | Stage 1 기조. 곡선에서 빠르면 ↓ |
-| `FOLLOW_TURN_LIMIT` | stage3 상수 | 35 | Stage 1 기조. turn 포화 잦으면 조정 |
-| `FOLLOW_SLOW_SPEED` | stage3 상수 | 12 | 노드 후보(111/101) 저속 직진. 노드 지나치면 ↓ |
+1. **캘리브레이션(`do calibrate`)** — 필수 선행. `lib/calib.py`(정규화/load/save) +
+   `lib/hardware.py` 저속 pivot 스윕. 센서별 흰/검 → `config/stage3_calib.json`.
+   실기 검증: 중앙 선 위 `dark≈(0,1,0)`/`pos≈0`/`total≈1`, 흰 `total≈0`, 교차 `total≥2`.
+2. **아날로그 조향** — `lib/nodes.py` 에 `sensor_darkness`/`line_position`/`total_darkness` +
+   `decide_line3`(pos 기반 P)로 교체. `bits_from_raw`/`node_kind` 는 로그용 유지.
+   실기: 직선 곧게·걸침 부드럽게 복귀. (현재 `FOLLOW_GAIN` bits 방식은 이 단계에서 폐기.)
+3. **노드 감지(total)** — `NodeDetector`(total>on 이 confirm_mm 거리 지속, debounce_mm) 신설,
+   구 `NodeDebouncer`(bits+ms) 대체. 라이브 6개 교체(아래 표). reason_code CALIBRATE 추가.
+
+**실기 보정 순서(구현 후)**: calibrate → `follow_kp` → `node_total_on` →
+`node_confirm_mm`/`node_debounce_mm` → `node_advance`. 모든 노드 종류 정지/출력 → `save`.
+**그 전에는 Stage 3 Done 으로 표시하지 않는다.**
+
+**새 라이브 params 6개(스펙 §3 확정, 코드 미반영)**
+
+| 이름 | 기본값 | 의미/조정 |
+|---|---|---|
+| `follow_kp` | 25 | pos 당 turn. 과조향/흔들림 ↓, 곡선 못 따라감 ↑ |
+| `follow_base_speed` | 20 | 직진 속도. 곡선에서 빠르면 ↓ |
+| `node_total_on` | 1.7 | **노드 트리거**(darkness 합 0~3). 직선 오탐 ↑, 노드 못잡음 ↓ |
+| `node_confirm_mm` | 8 | total>on 지속 거리. 단발 오탐 ↑, 노드 지나침 ↓ |
+| `node_debounce_mm` | 60 | 재확정 금지 거리. 두 번 잡음 ↑ |
+| `node_advance` | 0 | **실패#1** 확정 후 전진. 오버슛 ↓ |
+
+**config 상수(라이브 아님)**: 센서 캘리브레이션(`stage3_calib.json`), `follow_turn_limit`(35),
+`advance_speed`, `WHEEL_DIAM_MM`(56 가정 — 줄자 실측 후 갱신; `node_confirm_mm`/`advance` 거리 정확도).
+
+> **구 bits/시간 방식 잔재**(현재 코드에 있음, 개정 시 교체 대상): `FOLLOW_GAIN`/`FOLLOW_SLOW_SPEED`,
+> `left/center/right_threshold` 라이브(43/36/42), `NodeDebouncer`(node_confirm_ms/node_debounce_ms).
 
 ### Stage 2 실기 검증 결과 (2026-06-30 Done)
 
@@ -156,6 +162,26 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-01 — Stage 3 아날로그 방식으로 설계 개정 (문서만) (Agent: claude)
+- **배경**: 우회전 버그를 bits 위치 오차로 1차 수정했으나, 사용자가 근본 문제를 지적 —
+  센서 3개가 붙어 있고(사진 확인) 선폭≈센서폭이라 `110`/`011` 이 주행 중 상시 뜬다. 그래서
+  "코너/분기 vs 잠깐 삐끗"을 **시간 지속(debounce)** 으로만 갈라야 하는데 속도 의존·튜닝 트레이드
+  오프가 크다. 센서 간격은 넓히지 않기로 확정(넓히면 드리프트 때 `000` 오탐).
+- **결정(아날로그 전환)**: bits 로 자르지 말고 raw 를 센서별 흰/검으로 정규화(darkness 0~1) →
+  직교 두 물리량. **무게중심 `pos`(−1~+1)=조향**, **총 어둠 `total`(0~3)=노드 감지**.
+  드리프트는 선이 옆으로 옮길 뿐 → `total` 보존, `pos` 만 이동. 노드는 검은 면적 추가 →
+  `total` 급증. 즉 **`total>node_total_on` = 노드**로, 시간 지속 없이 갈린다. 붙어 있는 어레이는
+  centroid 라인트레이서의 정석 배치라 이 방식에 유리. bits 는 로그/종류 참고용으로만 유지.
+- **캘리브레이션 시드 확보**: 아래 antigravity 실측(검≈10 / 흰 좌75·중64·우75)이 그대로
+  `sensor_darkness` 의 초기 white/black 이 된다. `do calibrate` 스윕으로 재확인·갱신.
+- **문서 반영(코드 미착수)**: `docs/specs/stage3_node_detect.md` §0 신설 + §1~§11 개정(순수함수
+  `sensor_darkness`/`line_position`/`total_darkness`/`decide_line3`/`NodeDetector`, 라이브 6개 교체:
+  `follow_kp`/`follow_base_speed`/`node_total_on`/`node_confirm_mm`/`node_debounce_mm`/`node_advance`,
+  캘리브레이션 §5.3, 실기 보정 순서, 3단계 이행 체크리스트). `docs/DECISIONS.md` reason_code 갱신
+  (NODE_* detail 을 total/거리로, CALIBRATE 추가). PROGRESS 상태표·계획 섹션 갱신.
+- **다음**: 구현 3단계(캘리브 → 아날로그 조향 → total 노드 감지). 각 단계 PC검증 후 실기 확인.
+  **실기 검증 필요**(사용자 승인 시 1단계 캘리브레이션부터 착수).
 
 ### 2026-07-01 — Stage 3 threshold 실측값 계산 및 반영 (Agent: antigravity)
 - **배경**: 사용자가 실기에서 측정된 검은색(검검검)과 흰색(흰흰흰) 3세트씩의 raw 데이터를 제공.

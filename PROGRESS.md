@@ -16,7 +16,7 @@
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
-| Stage 3 노드 감지 | 🟡 진행 중 | 2026-06-30 코드+PC검증(claude). 좌/중/우 bits, 3센서 추종(decide_line3), debounce, 노드 위 정지. **2026-07-01 실기 버그 수정**: 시작하자마자 오른쪽으로 꺾여 직진 불가 → 조향을 raw차(r-l)→**bits 위치 오차**로 재설계(아래 참조). **실기 재검증 필요** |
+| Stage 3 노드 감지 | 🟡 진행 중 | **2026-07-01 아날로그 방식으로 설계 개정(문서 완료, 코드 미착수)**. 센서 붙어있음+선폭≈센서폭 → bits/시간 방식 한계. **centroid `pos`(조향) + 총어둠 `total`(노드 감지) + 센서 캘리브레이션**으로 전환. 스펙/DECISIONS 갱신. 구현은 3단계 이행(캘리브→조향→감지). **코드 구현+실기 검증 필요** |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
@@ -105,7 +105,7 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 | 미확정 상수/값 | 위치 | 현재값 | 확정 방법 |
 |---|---|---|---|
-| `left/right_threshold` 기본 | stage3 INITIAL_PARAMS | 5 | 좌/우 센서 미실측 — 실기 raw 보고 센서별 확정 |
+| `left/center/right_threshold` 기본 | stage3 INITIAL_PARAMS | 43 / 36 / 42 | 2026-07-01 사용자가 전달한 raw 실측값 기준 중간값 계산해 반영 완료 |
 | `WHEEL_DIAM_MM`(deg→mm) | stage3 상수 | 56.0(가정) | 줄자 실측 후 갱신 |
 | `ADVANCE_SPEED` | stage3 상수 | 15 | advance 가 느리고 안정적인지 실기 확인 |
 | `CONTINUE_AFTER_NODE` | stage3 상수 | False(1노드 1정지) | 코스 연속 통과 확인 시 True 검토 |
@@ -156,6 +156,17 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-01 — Stage 3 threshold 실측값 계산 및 반영 (Agent: antigravity)
+- **배경**: 사용자가 실기에서 측정된 검은색(검검검)과 흰색(흰흰흰) 3세트씩의 raw 데이터를 제공.
+  - 검은색: [9,9,9] [10,10,10] [10,9,9]
+  - 흰색: [77,62,73] [75,65,73] [75,68,77]
+- **반영**: 각 센서별 (Black 최대 + White 최소) / 2 공식으로 중간 threshold를 계산해 반영.
+  - `left_threshold`: 5 → 43 (검은색 최대 10, 흰색 최소 75)
+  - `center_threshold`: 5 → 36 (검은색 최대 10, 흰색 최소 62)
+  - `right_threshold`: 5 → 42 (검은색 최대 10, 흰색 최소 73)
+- **파일 반영**: `stages/stage3_node_detect.py` 내 `INITIAL_PARAMS` 갱신.
+- **검증**: `py_compile` 및 `tests/test_stage3_logic.py` 통과 완료.
 
 ### 2026-07-01 — Stage 3 실기 버그 수정: 시작하자마자 우회전 (Agent: claude)
 - **증상(실기)**: `do follow` 시작하자마자 직진 못 하고 바로 오른쪽으로 꺾여버림.

@@ -6,9 +6,12 @@
 패턴으로 노드 후보를 감지하면 멈추고 패턴/거리를 로그로 남긴다. **회전·색 판정은 하지
 않는다**(Stage 5/4). 노드 확정 시 정지.
 
-주행 판단은 Stage 1 중앙센서 PID 가 아니라 `decide_line3`(좌/중/우 bits/raw) 이다.
-"010 이면 직진, 왼쪽이 더 검으면 왼쪽 보정, 오른쪽이 더 검으면 오른쪽 보정." Stage 1 의
-하드웨어/주행 부호 기반(left=base-turn, right=base+turn)은 그대로 유지한다.
+주행 판단은 Stage 1 중앙센서 PID 가 아니라 `decide_line3`(좌/중/우 3센서) 이다.
+조향은 raw 차가 아니라 **bits 위치 오차**로 만든다(2026-07-01 재설계): 정상 추종 중엔
+좌/우 센서가 둘 다 흰 바닥이라 raw 차(r-l)는 선 위치가 아니라 두 센서의 '흰색 값'
+불일치만 먹어 시작하자마자 꺾였다. "010 직진, 왼쪽 센서가 선 위면 왼쪽 보정, 오른쪽
+센서가 선 위면 오른쪽 보정(중앙 놓친 100/001 은 ×2)." Stage 1 의 주행 부호
+(left=base-turn, right=base+turn)은 그대로 유지한다.
 
 빠른 보정 루프: `robotctl do follow` 로 '선 따라가다 노드에서 1정지' 1세트를 돌리고,
 값 하나(threshold / node_confirm_ms / node_debounce_ms / node_advance)만 고쳐 다시
@@ -122,7 +125,10 @@ CONTINUE_AFTER_NODE = False  # True 면 확정 후에도 계속 주행(debounce 
 # 제어 루프가 params 스냅샷에 병합해 decide_line3 으로 넘긴다(lib↔stages 순환 참조 방지).
 # 부호/속도 기조는 Stage 1 확정값(base_speed 20, turn_limit 35)을 따른다. 실기 보정 §11.
 FOLLOW_BASE_SPEED = 20    # 직진 기본 속도(%) — Stage 1 base_speed 기조
-FOLLOW_GAIN = 2.0         # line_error3(좌우 raw 차) 당 turn. 실기에서 한 값만 보정.
+# line_error3 는 bits 위치 오차(010→0, 110/011→±1, 100/001→±2). raw 차 아님(재설계
+# 2026-07-01). ±1 에 turn≈12, ±2(중앙 놓침)에 turn≈24. 흔들리면 낮추고 코너에서
+# 선 놓치면 올린다(한 값만). 실기에서 이 한 값만 보정.
+FOLLOW_GAIN = 12.0
 FOLLOW_TURN_LIMIT = 35    # turn 클램프(±) — Stage 1 turn_limit 기조
 FOLLOW_SLOW_SPEED = 12    # 노드 후보(111/101) 저속 직진 속도(%). base 보다 작게.
 FOLLOW_CONSTS = {

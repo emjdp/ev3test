@@ -77,7 +77,7 @@ def node_kind(bits):
 # 구동층이 병합을 빠뜨려도 동작하게 하는 안전 기본값(실제 값은 stage3 파일 상수).
 FOLLOW_DEFAULTS = {
     "follow_base_speed": 20,    # 직진 기본 속도(%)
-    "follow_gain": 2.0,         # line_error3(좌우 raw 차) 당 turn
+    "follow_gain": 12.0,        # line_error3(bits 위치 오차, ±1/±2) 당 turn
     "follow_turn_limit": 35,    # turn 클램프(±)
     "follow_slow_speed": 12,    # 노드 후보(111/101) 저속 직진 속도(%)
 }
@@ -111,16 +111,21 @@ def decide_line3(raw, bits, params, state):
 
     반환 action(dict): {line, turn, error, line_error3, left, right}
 
+    ⚠️ 조향은 raw 차(r-l)가 아니라 **bits 위치 오차**로 만든다. 정상 추종 중엔 좌/우
+    센서가 둘 다 흰 바닥이라 raw 차는 선 위치가 아니라 두 센서의 '흰색 읽는 값'
+    불일치(상시 편향)만 먹어 시작하자마자 한쪽으로 꺾인다. bits 는 이미 센서별
+    threshold 로 잘려 그 편향이 없다(2026-07-01 실기 재설계).
+
     부호 약속(Stage 1 to_wheel_speeds 와 동일):
       turn > 0 → left=base-turn, right=base+turn → 로봇이 왼쪽으로 돈다.
 
-      010            -> turn≈0 직진(좌우 raw 비슷 → 오차 0).
-      100/110        -> 왼쪽이 더 검음(l 작음) → line_error3>0 → turn>0(왼쪽 보정).
-      001/011        -> 오른쪽이 더 검음(r 작음) → line_error3<0 → turn<0(오른쪽 보정).
+      010            -> 중앙만 선 위 → line_error3=0 → 직진(중앙 폭 안은 데드밴드).
+      110/100        -> 왼쪽이 선 위 → line_error3>0 → turn>0(왼쪽 보정). 중앙이
+                        선을 놓친 100 은 이탈이 크다고 ×2 가중(더 세게).
+      011/001        -> 오른쪽이 선 위 → line_error3<0 → turn<0(오른쪽 보정). 001 은 ×2.
       111/101        -> 노드 후보 → 저속(slow_speed) 직진(turn 0). 멈춤은 debounce 가.
       000            -> 막다른 길 후보 → 속도 0(정지) + 직전 조향(last_turn) 유지(보수).
     """
-    l, c, r = raw
     base = params.get("follow_base_speed", FOLLOW_DEFAULTS["follow_base_speed"])
     gain = params.get("follow_gain", FOLLOW_DEFAULTS["follow_gain"])
     turn_limit = params.get("follow_turn_limit", FOLLOW_DEFAULTS["follow_turn_limit"])
@@ -139,9 +144,13 @@ def decide_line3(raw, bits, params, state):
         return {"line": "LOST", "turn": held, "error": 0.0, "line_error3": 0.0,
                 "left": 0, "right": 0}
 
-    # 라인 추종(010/100/110/001/011): 좌/우 raw 차로 위치 오차를 만든다.
-    #   왼쪽이 더 검으면(l 작음) line_error3 = r - l > 0 → turn>0 → 왼쪽 보정.
-    line_error3 = float(r - l)
+    # 라인 추종(010/100/110/001/011): '어느 센서가 선 위인가'(bits)로 위치 오차.
+    #   raw 차(r-l)는 흰바닥 편향을 먹으니 쓰지 않는다(상단 docstring ⚠️ 참고).
+    #   왼쪽 센서가 선 위면 (l_b - r_b) > 0 → turn>0 → 왼쪽 보정(선 쪽으로).
+    #   중앙이 선을 놓쳤으면(c_b=0) 이탈이 크다고 보고 ×2 가중.
+    l_b, c_b, r_b = pattern
+    weight = 2 if c_b == 0 else 1
+    line_error3 = float((l_b - r_b) * weight)   # 010→0, 110→+1, 100→+2, 011→-1, 001→-2
     turn = _clampf(gain * line_error3, -turn_limit, turn_limit)
     state["last_turn"] = turn
     left = base - turn
@@ -340,6 +349,15 @@ def _self_test():
     assert a["turn"] < 0 and a["left"] > a["right"] and a["line_error3"] < 0
     a = decide_line3((3, 3, 3), (1, 1, 1), {}, fs)
     assert abs(a["turn"]) < 1e-9 and a["left"] == a["right"] and a["line"] == "NODE"
+    # bits 위치 오차: 중앙 놓친 이탈(100/001)은 근접(110/011)보다 ×2 세게.
+    fs3 = make_follow_state()
+    near = decide_line3((0, 0, 80), (1, 1, 0), {}, fs3)   # 110
+    far = decide_line3((0, 80, 80), (1, 0, 0), {}, fs3)   # 100 (중앙 놓침)
+    assert far["line_error3"] == 2 * near["line_error3"] > 0
+    assert abs(far["turn"]) >= abs(near["turn"])
+    # 재설계 회귀 방지: 좌/우 흰바닥 raw 불일치(20 vs 14)가 있어도 010 이면 직진.
+    straight = decide_line3((20, 0, 14), (0, 1, 0), {}, fs3)
+    assert straight["turn"] == 0.0 and straight["left"] == straight["right"]
     fs2 = make_follow_state()
     decide_line3((0, 0, 80), (1, 1, 0), {}, fs2)        # 왼쪽 조향으로 last_turn>0
     a = decide_line3((80, 80, 80), (0, 0, 0), {}, fs2)

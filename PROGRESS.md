@@ -16,7 +16,7 @@
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
-| Stage 3 노드 감지 | 🟡 진행 중 | 2026-06-30 코드+PC검증 완료(claude). 좌/중/우 bits, **3센서 추종(decide_line3, 중앙 PID 제거)**, debounce 확정, 노드 위 정지. **실기 검증 필요** |
+| Stage 3 노드 감지 | 🟡 진행 중 | 2026-06-30 코드+PC검증(claude). 좌/중/우 bits, 3센서 추종(decide_line3), debounce, 노드 위 정지. **2026-07-01 실기 버그 수정**: 시작하자마자 오른쪽으로 꺾여 직진 불가 → 조향을 raw차(r-l)→**bits 위치 오차**로 재설계(아래 참조). **실기 재검증 필요** |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
@@ -109,7 +109,7 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `WHEEL_DIAM_MM`(deg→mm) | stage3 상수 | 56.0(가정) | 줄자 실측 후 갱신 |
 | `ADVANCE_SPEED` | stage3 상수 | 15 | advance 가 느리고 안정적인지 실기 확인 |
 | `CONTINUE_AFTER_NODE` | stage3 상수 | False(1노드 1정지) | 코스 연속 통과 확인 시 True 검토 |
-| `FOLLOW_GAIN` | stage3 상수 | 2.0 | 3센서 추종 과조향/흔들림이면 ↓, 곡선 못 따라가면 ↑(한 값만) |
+| `FOLLOW_GAIN` | stage3 상수 | 12.0 | bits 위치 오차(±1/±2)당 turn. 과조향/흔들림이면 ↓, 곡선 못 따라가면 ↑(한 값만) |
 | `FOLLOW_BASE_SPEED` | stage3 상수 | 20 | Stage 1 기조. 곡선에서 빠르면 ↓ |
 | `FOLLOW_TURN_LIMIT` | stage3 상수 | 35 | Stage 1 기조. turn 포화 잦으면 조정 |
 | `FOLLOW_SLOW_SPEED` | stage3 상수 | 12 | 노드 후보(111/101) 저속 직진. 노드 지나치면 ↓ |
@@ -156,6 +156,22 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-01 — Stage 3 실기 버그 수정: 시작하자마자 우회전 (Agent: claude)
+- **증상(실기)**: `do follow` 시작하자마자 직진 못 하고 바로 오른쪽으로 꺾여버림.
+- **원인(로그 `runs/2026-07-01T09-11-12` 분석)**: `decide_line3` 의 조향이 `line_error3 =
+  r - l`(좌/우 raw 반사광 차)였다. 그런데 **얇은 선 위에선 좌/우 센서가 둘 다 흰 바닥**이라
+  이 차이는 선 위치가 아니라 두 센서의 '흰색 읽는 값' 불일치(캘리브레이션 편차)만 먹는다.
+  현재 실기 대역에서 흰바닥 좌≈20 / 우≈14 → `line_error3 ≈ -6` 이 **상시** 걸려(선 위
+  `010` 에서도) turn 음수 → 우측 바퀴 감속 → 시작부터 우회전. 값 튜닝이 아니라 설계 결함.
+- **수정**: 3센서 구조는 유지(사용자 선택). 조향을 **bits 위치 오차**로 재설계 —
+  `line_error3 = (l_bit - r_bit) × (중앙 놓쳤으면 2 else 1)`. `010`→0(직진, 중앙 폭 데드밴드),
+  `110/100`→+1/+2(왼쪽 보정), `011/001`→-1/-2(오른쪽 보정). bits 는 이미 센서별 threshold 로
+  잘려 흰바닥 편차가 없다. 부호/바퀴매핑(Stage 1 `left=base-turn`)은 유지. `FOLLOW_GAIN`
+  2.0→12.0(±1→turn 12, ±2→24). `lib/nodes.py` + `stages/stage3_node_detect.py`.
+- **검증(PC)**: `python3 lib/nodes.py`, `tests/test_stage3_logic.py` 통과. 회귀 가드 추가
+  (좌/우 흰바닥 raw 20/14 불일치라도 `010`이면 turn 0). **실기 재검증 필요.**
+- 노드 감지(bits/debounce/decide_node)·reason_code 카탈로그는 변경 없음 → 하위 스펙 전파 불필요.
 
 ### 2026-07-01 — Stage 6 복귀 경로 압축(삽질 제거)으로 명세 변경 (Agent: claude)
 - **배경**: 사용자가 "복귀(RETURN) 때 갈 때 들어갔던 막다른 길을 또 되밟는다"는 비효율을 지적.

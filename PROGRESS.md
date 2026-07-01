@@ -163,6 +163,25 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-01 — Stage 3 v2 명세 작성(라인추종+분기 탱크 회전) — 문서만 (Agent: claude)
+- **요청**: only_linetrace 기반으로 "스테이지3 v2" 를 새로 짤 계획. **지금은 명세만.**
+  좌/우 회전을 **탱크(제자리) 모드**로, **회전 시점 튜닝 가능**하게, **factor 로 90° 실기 보정**.
+- **작성**: [docs/specs/stage3v2_linetrace_branch.md](docs/specs/stage3v2_linetrace_branch.md)
+  (11절 형식, DRAFT). specs/README 표에 1줄 추가.
+- **핵심 설계 결정**:
+  1. **회전은 `lib/turns.pivot`(Stage 2 실기 Done) 재사용.** only_linetrace 는 회전을 인라인
+     `run_encoder_turn` 으로 **중복 구현**중 → v2 에서 제거하고 검증된 탱크 pivot 호출로 대체.
+  2. **현재 코드는 이미 탱크 부호**다(lib/turns `_DIRS`·only_linetrace `wheel_dirs` 모두
+     좌`(-1,+1)`/우`(+1,-1)`, `BASE_PIVOT_DEG_90=193`=제자리 90° 기하값). 사용자가 실기서 "컴퍼스처럼
+     돈다"고 관측 → **코드가 아니라 실기 원인**(모터 응답/부호/트림/브레이크/배터리) 의심. §8·§11 로.
+  3. **회전 시점 = 두 손잡이**: `branch_confirm_count`(오탐 방지) + `branch_advance_mm`(확정 후
+     교차점 위로 전진). 앞서 확인한 "confirm_count 19 로 상한 근처" 문제의 정공법이 advance_mm.
+  4. **라이브 params 6개**로 축소 제안(kp/base_speed/turn_speed/turn_90_factor/branch_confirm_count/
+     branch_advance_mm). threshold(43/36/42)·kd·turn_180_factor 등은 config 로. (사용자 확정 필요 §11.)
+- **미해결(사용자 결정 대기)**: 탱크/컴퍼스 관측 불일치 실기 규명, 라이브 6개 셋(threshold 라이브 여부),
+  좌/우 factor 분리, U턴 포함, `do follow` 자동/수동, stage3_node_detect(아날로그)와 공존/대체.
+- **코드 미착수**(명세만). only_linetrace.py 는 여전히 untracked(사용자 커밋 여부 미정).
+
 ### 2026-07-01 — only_linetrace 1차 실기 보정값 기록 (Agent: claude)
 - **대상**: `stages/only_linetrace.py`(untracked, 라인추종+왼쪽 분기 회전 결합 실험 스크립트).
   SAVE_PATH/stage 이름은 `stage1_linetrace` 를 쓴다. 브릭에서 사용자가 대시보드로 1차 보정 후

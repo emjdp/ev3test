@@ -1,0 +1,17 @@
+{
+  "base_speed": 12,
+  "branch_confirm_count": 19,
+  "branch_cooldown_ms": 1500,
+  "kd": 0.05,
+  "kp": 0.22,
+  "loop_delay_ms": 15,
+  "post_turn_settle_ms": 90,
+  "target_reflect": 40,
+  "thr_center": 36,
+  "thr_left": 43,
+  "thr_right": 42,
+  "turn_180_factor": 0.8,
+  "turn_90_factor": 1.0,
+  "turn_limit": 16,
+  "turn_speed": 6
+}

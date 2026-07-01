@@ -163,6 +163,27 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-01 — only_linetrace 1차 실기 보정값 기록 (Agent: claude)
+- **대상**: `stages/only_linetrace.py`(untracked, 라인추종+왼쪽 분기 회전 결합 실험 스크립트).
+  SAVE_PATH/stage 이름은 `stage1_linetrace` 를 쓴다. 브릭에서 사용자가 대시보드로 1차 보정 후
+  `save` → `/home/robot/ev3test/config/stage1_linetrace.json` 에 저장됨(status: ok).
+- **비교 기준**: 로컬 `config/stage1_linetrace.json` 이 없어 파일의 `INITIAL_PARAMS` 기본값과 비교.
+  git 추적용으로 브릭 저장값을 로컬 `config/stage1_linetrace.json` 에 동일하게 미러링(stage2.json 선례).
+- **1차 보정값 (기본→보정)**:
+  - `kp` 0.60→**0.22**, `kd` 0.0→**0.05**, `base_speed` 22→**12**, `turn_limit` 35→**16**
+  - `target_reflect` 40(=), `thr_left/center/right` 40→**43/36/42**
+  - `turn_speed` 18→**6**, `turn_90_factor` 0.9→**1.0**, `turn_180_factor` 0.8(=), `post_turn_settle_ms` 120→**90**
+  - `branch_confirm_count` 4→**19**, `branch_cooldown_ms` 700→**1500**, `loop_delay_ms` 15(=)
+- **핵심 관찰**:
+  1. **"분기 보고 너무 빨리 회전" → `branch_confirm_count` 4→19 로 대응.** 상한이 20이라 여유 1칸뿐.
+     이 값으로도 아직 이르면 이 손잡이는 한계 → `loop_delay_ms` 로 루프 주기를 늘리거나(같은 카운트로
+     더 오래/멀리 봄), "확정 후 전진(node_advance 류)" 파라미터 신설이 필요. **다음 실기에서 확인.**
+  2. `thr` 43/36/42 는 Stage 3 antigravity 실측 midpoint(좌43/중36/우42)와 정확히 일치 → 같은 센서
+     캘리브레이션 일관.
+  3. 전반적으로 보수적 튜닝(속도·게인·회전속도 하향).
+- **상태**: **1차 보정값(실기 중간 스냅샷)일 뿐 Done 아님.** 분기 회전 타이밍/코스 완주 미검증.
+  코드/기본값(`INITIAL_PARAMS`)은 아직 안 고침 — 실기로 값이 굳으면 파일 상단 상수에 반영 후 커밋.
+
 ### 2026-07-01 — Stage 3 아날로그 방식으로 설계 개정 (문서만) (Agent: claude)
 - **배경**: 우회전 버그를 bits 위치 오차로 1차 수정했으나, 사용자가 근본 문제를 지적 —
   센서 3개가 붙어 있고(사진 확인) 선폭≈센서폭이라 `110`/`011` 이 주행 중 상시 뜬다. 그래서

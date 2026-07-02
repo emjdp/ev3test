@@ -1,8 +1,9 @@
 # Stage 3 v2 — 라인트레이싱 + 분기 탱크 회전 구현 명세 (공식 Stage 3 구현체)
 
 > 상태: REVIEWED — **2026-07-02 공식 Stage 3 로 채택**(사용자 결정, [PROGRESS.md](../../PROGRESS.md)
->       2026-07-02 로그). 1차 파라미터 실기 튜닝 완료(`save` 반영), **전체 코스 통과는 아직
->       미검증**. 실기 Done 표기는 명세가 아니라 [PROGRESS.md](../../PROGRESS.md) 의 🟢 로 한다.
+>       2026-07-02 로그). **같은 날 실기 Done 확정**(좌/우 분기 각각 여러 번 재현 성공, 흔들림
+>       오회전 없음 — 사용자 확인). 실기 Done 표기는 명세가 아니라
+>       [PROGRESS.md](../../PROGRESS.md) 의 🟢 로 한다(이 문서는 그 사실을 참고 표기만 한다).
 > 선행: Stage 1 주행 기반(모터 부호 `left=base-turn`/`right=base+turn`·트림) 실기 Done,
 >       Stage 2 탱크 회전([lib/turns.py](../../lib/turns.py)) 실기 Done, 인프라([00_infra_dashboard.md](00_infra_dashboard.md)) Done.
 > 통과기준(Done): [STAGES.md](../STAGES.md) Stage 3 인용 — 코스 위 좌/우 분기 각각에서
@@ -191,11 +192,11 @@ loop while not stop:
 - [x] 판단층 단위 테스트(`tests/test_stage3v2_logic.py`, 14개) + replay 어댑터
       `decide_branch`(confirm_count/cooldown/좌우 흔들림 재연, `tools/replay.py` 스모크 확인).
 - [x] Codex 교차검증(2026-07-02, `codex exec --model gpt-5.5`) 및 지적 반영(아래 §11.1).
-- [x] 실기 보정 §7 1차 진행 + `save` — 2026-07-02, 값: `kp=0.22`/`base_speed=17`/
+- [x] 실기 보정 §7 완료 + `save` — 2026-07-02, 값: `kp=0.22`/`base_speed=17`/
       `turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`
-      ([PROGRESS.md](../../PROGRESS.md) "Stage 3 v2 1차 실기 튜닝값" 참조).
-- [ ] 위 값으로 **전체 코스 통과**(좌/우 분기 반복 재현 + 모든 노드 종류) 확인 후 재 `save` +
-      PROGRESS Done 기록. **그 전엔 Done 아님.**
+      ([PROGRESS.md](../../PROGRESS.md) "Stage 3 v2 실기 확정값" 참조).
+- [x] 위 값으로 **좌/우 분기 각각 여러 번 재현** 확인(사용자, 2026-07-02) — 오회전 없음.
+      **Stage 3 실기 Done.** [PROGRESS.md](../../PROGRESS.md) 상태판/로그에 반영됨.
 
 ## 11. 미해결 / 실기 확인 필요
 

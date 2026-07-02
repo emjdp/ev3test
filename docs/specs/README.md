@@ -27,7 +27,11 @@
 | [stage3_node_detect.md](stage3_node_detect.md) | ⚠️ 폐기(2026-07-02, 아날로그 centroid 트랙, 코드 미착수) — stage3v2 로 대체됨 |
 | [stage3v2_linetrace_branch.md](stage3v2_linetrace_branch.md) | **공식 Stage 3**(2026-07-02 채택). only_linetrace 기반 라인추종 + 분기 **탱크 회전**(`lib/turns.pivot` 재사용, factor 90°, 회전 시점 튜닝) |
 | [stage3v3_anchor_pivot_idea.md](stage3v3_anchor_pivot_idea.md) | DRAFT 아이디어 메모. stage3v2 의 사전 회전 보상 편법을 나중에 제거하기 위한 후보 위치(anchor)+확정 후 보정 구상(구현 의무 없음) |
-| [stage4_color.md](stage4_color.md) | 색상코드 노드 판정, 색 읽기 위치, 실패#2 대응 |
+| [stage4_color.md](stage4_color.md) | 색상코드 노드 판정, 색 읽기 위치, 실패#2 대응 — 공통 부품(모드 전환·ColorConfirmer·COLOR_* reason)의 기준 문서 |
+| [stage4a_reflect_only.md](stage4a_reflect_only.md) | Stage 4 **브릿지 후보 A** — 반사광 단독 노드색 판정(노드별 반사광 대역 + 유지시간, 컬러 전환 0회) |
+| [stage4b_suspect_backup_color.md](stage4b_suspect_backup_color.md) | Stage 4 **브릿지 후보 B** — `010`→`000` 의심지점에서만 컬러 전환 + 후진 판독(막다른 길 마커) |
+| [stage4c_reflect_gate_color.md](stage4c_reflect_gate_color.md) | Stage 4 **브릿지 후보 C(기본 권장)** — 반사광 의심대역 게이트 + 컬러 모드 확정(A+B 결합) |
+| [stage4d_mode_interleave.md](stage4d_mode_interleave.md) | Stage 4 **브릿지 후보 D** — 반사광↔컬러 고속 교대(구현 전 `do bench_toggle` go/no-go 관문) |
 | [stage5_integration.md](stage5_integration.md) | 라인트레이싱 + 노드 분기 회전 통합 |
 | [stage6_explore_return.md](stage6_explore_return.md) | 탐색/복귀 알고리즘 |
 | [stage7_gripper.md](stage7_gripper.md) | 초음파 + 그리퍼 물체 집기 |

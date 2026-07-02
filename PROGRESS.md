@@ -50,6 +50,15 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
+- [ ] **Stage 4 착수: 브릿지 후보 A/B/C/D 중 채택 결정** — 명세 4건(2026-07-02, DRAFT):
+      [A 반사광 단독](docs/specs/stage4a_reflect_only.md) /
+      [B 000 의심지점+후진 컬러](docs/specs/stage4b_suspect_backup_color.md) /
+      [C 반사광 게이트+컬러 확정(기본 권장)](docs/specs/stage4c_reflect_gate_color.md) /
+      [D 반사광↔컬러 고속 교대](docs/specs/stage4d_mode_interleave.md).
+      **선결(실기)**: 각 마커(출발/노드/도착)·검은 선·흰 바닥에서 반사광+컬러 5회씩 실측
+      (각 명세 §7-0 공통)해 이 파일에 표로 기록 → 그 값으로 A(5대역 분리)/B(마커가 선 끝
+      +threshold 위)/C(마커가 흑백 중간대) 성립 판정. D 는 추가로 `do bench_toggle`
+      전환 벤치 go/no-go 관문을 먼저 통과해야 구현 착수 가능.
 - [ ] **Stage 3 v3 후보 위치(anchor) 보정 아이디어 보류** — 메모:
       [docs/specs/stage3v3_anchor_pivot_idea.md](docs/specs/stage3v3_anchor_pivot_idea.md).
       Stage 3 v2 Done 은 유지하되, v2 의 `turn_90_factor=0.66` 이
@@ -177,6 +186,33 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-02 — Stage 4 브릿지 후보 A/B/C/D 명세 4건 작성 (문서만) (Agent: claude)
+- **요청**: 사용자가 Stage 4 접근 아이디어 4개를 제시("stage4를 4개로 브릿지") — ① 반사광
+  단독 색 판정(일정시간 유지 조건, 노드별 반사광 대시보드 조정) ② 000 의심지점에서만 컬러
+  센서 on + 후진 ③ ①+② 결합(반사광 의심 → 컬러 확정) ④ 반사광↔컬러 고속 교대. 각각
+  구체화해 specs 에 md 로 저장.
+- **작성(전부 DRAFT, 코드 미착수, 11절 형식)**:
+  - [stage4a_reflect_only.md](docs/specs/stage4a_reflect_only.md) — 마커 3색 반사광 대역
+    (`start/checkpoint/goal_reflect` 라이브) + `BandHold` 유지시간 확정. 컬러 전환 0회.
+    성립 조건 최엄격(흑/백/3색 5대역 분리) → 시작 자기검증 `validate_reflect_bands`.
+  - [stage4b_suspect_backup_color.md](docs/specs/stage4b_suspect_backup_color.md) — "직진
+    (010) 이력 + 000 연속" `SuspectDetector` → 정지 → 컬러 전환 1회 → `backup_and_read`
+    저속 후진 판독(실패 #2 를 후진으로 되돌림). 어두운 마커는 000 을 안 만들어 단독 한계.
+  - [stage4c_reflect_gate_color.md](docs/specs/stage4c_reflect_gate_color.md) — 반사광
+    의심대역(`suspect_lo/hi`+유지) 게이트 → 컬러 확정, 오탐은 `SUSPECT_FALSE` 로 자기교정.
+    성립 조건 최관대("마커 vs 흑/백"만 분리) → **4개 중 기본 권장 트랙으로 명시**.
+  - [stage4d_mode_interleave.md](docs/specs/stage4d_mode_interleave.md) — N루프 반사광 +
+    1슬롯 컬러 교대. **구현 전 `do bench_toggle`(전환 왕복 실측) go/no-go 관문** —
+    슬롯 blind 비용이 예산(기본 80ms, 실측 조정) 초과면 D 폐기 후 C 로. 위험 최대.
+- **공통 설계**: 4개 모두 stage3v2 확정 코드(import) 수정 금지, 라이브 params 6개 이하,
+  컬러 모드 공통 부품(전환 settle/dummy·ColorConfirmer·classify_node_color·COLOR_*/
+  NODE_IS_*)은 stage4_color.md 를 기준 문서로 인용(중복 기술 안 함). 각 명세 §0 에 동일한
+  후보 비교표 + §7-0 공통 선결 실측(마커/흑/백 반사광·컬러 5회씩) 절차 포함.
+- **문서 갱신**: specs/README 표에 4건 추가, stage4_color.md 상단에 브릿지 후보 포인터
+  배너 추가(기준 문서 역할로 유지). 신규 reason_code(`RNODE_*`/`SUSPECT_*`/`BACKUP_READ`/
+  `BENCH_TOGGLE` 등)의 DECISIONS.md 카탈로그 반영은 각 후보 **구현 시점**에(명세 §10).
+- **다음**: 위 TODO 첫 항목 — §7-0 공통 선결 실측 후 후보 채택 결정, 채택안만 구현.
 
 ### 2026-07-02 — Stage 3 v3 아이디어 메모로 축소 정리 (Agent: codex)
 - **배경**: 사용자가 Stage 3 v2 는 잘 작동하지만, `110`/`011` 지점에서 라인트레이싱이 먼저

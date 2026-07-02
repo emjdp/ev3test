@@ -5,6 +5,15 @@
 > 통과기준(Done): [../STAGES.md](../STAGES.md) Stage 4 인용 —
 > "각 색 마커에서 의도한 색을 안정적으로 판정. 빈 바닥 오독 없음. 전환 직후 오판(0/엉뚱한 색) 없음."
 
+> **브릿지 후보 4개로 구체화(2026-07-02)**: Stage 4 접근을 후보 4개로 나눠 별도 명세로
+> 구체화했다 — [A 반사광 단독](stage4a_reflect_only.md) /
+> [B 000 의심지점+후진 컬러](stage4b_suspect_backup_color.md) /
+> [C 반사광 게이트+컬러 확정(기본 권장)](stage4c_reflect_gate_color.md) /
+> [D 반사광↔컬러 고속 교대](stage4d_mode_interleave.md).
+> 이 문서는 컬러 모드 공통 부품(전환 settle/더미읽기·`ColorConfirmer`·`classify_node_color`·
+> `COLOR_*`/`NODE_IS_*` reason)의 **기준 문서**로 유지한다. 후보 선택은 각 후보 명세의
+> §7-0 공통 선결 실측(마커 3색 반사광/컬러 측정) 후 결정한다.
+
 관련 문서: 단계 통과기준 [../STAGES.md](../STAGES.md), 라이브 튜닝/안전 [../LIVE_TUNING.md](../LIVE_TUNING.md),
 판단기록·재연·실패분석 [../DECISIONS.md](../DECISIONS.md), 배선/센서모드 [../HARDWARE.md](../HARDWARE.md).
 참고 원본(검증값/구조만 인용, 복붙 금지): `/home/emjdp/dev/ev3maze/robot/run/config.py` 8절,

@@ -307,7 +307,21 @@ def stage5_run(seq, params, hw, telem, events):
 
 ## 11. 미해결 / 실기 확인 필요
 
-> **검토 반영 메모 (2026-06-30, Stage 3 변경 전파).** Stage 3 라인추종이 중앙센서 단일
+> **검토 반영 메모 (2026-07-02, Stage 3 v2 채택 전파 — 가장 크게 영향받음).** 공식 Stage 3
+> 구현체가 `lib/nodes.py:decide_line3`(및 그 기반이던 아날로그 centroid 설계)에서
+> **`stages/stage3v2_linetrace_branch.py`로 교체**됐고, 그 아날로그 설계는 폐기됐다
+> ([PROGRESS.md](../../PROGRESS.md) 2026-07-02 로그). 아래 2026-06-30 메모의 `decide_line3`
+> 재사용 지시는 **stale** — 재사용 대상은 `black_bits`/`branch_side`/`pd_step`. **더 중요한
+> 변화**: v2 Stage 3 는 이미 "분기 감지 → 정지 → 전진 → 탱크 회전(`lib/turns.pivot`) →
+> 재포착"을 자체적으로 한다(감지된 쪽으로 자동 회전). 즉 이 Stage 5 문서의 핵심 범위였던
+> "선 추종+노드감지+회전 통합"의 상당 부분을 Stage 3 가 이미 수행한다. Stage 5 착수 시 남는
+> 차별점은 ① **미리 정한/입력받은 방향 시퀀스**대로 도는 것(v2 는 "보이는 분기 쪽" 고정)
+> ② **노드 종류(T자/십자/막다른 길) 구분**(v2 는 좌/우 분기만 본다) — 이 문서를 처음부터 다시
+> 설계할지, v2 위에 시퀀스/종류판별만 얹을지는 착수 시 결정([STAGES.md](../STAGES.md) Stage 5
+> 메모 참조).
+
+> **검토 반영 메모 (2026-06-30, Stage 3 변경 전파, ⚠️ 위 2026-07-02 메모로 대체됨 — 참고용 보존).**
+> Stage 3 라인추종이 중앙센서 단일
 > PID(`decide_line`)에서 **좌/중/우 3센서(`lib/nodes.py:decide_line3`)**로 확정되었다. Stage 5
 > 의 `follow_to_node` 는 이 3센서 추종을 재사용한다 — 통합에서 라인추종 거동(`FOLLOW_GAIN`
 > 등)을 다시 만지려면 **Stage 3 파일 상수**로 돌아가 보정한다(라이브 param 아님). 회전 후

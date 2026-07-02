@@ -55,22 +55,37 @@
 - **Done**: 바닥 표시 기준 각 회전을 3회 연속 ±몇 도 안에서 재현. (라인 재포착 방식은
   Stage 5에서 라인트레이싱과 합칠 때 도입; 여기서는 순수 회전 각도만 본다.)
 
-## Stage 3 — 노드(분기) 감지
+## Stage 3 — 노드(분기) 감지 + 분기 회전
 
-- **목표**: 좌·중·우 3센서를 흑/백 bits(`LCR`, 예 `010`=직선, `111`=교차, `000`=선없음)로
-  읽어 분기/교차/막다른 길을 구분. 감지하면 멈추고 패턴을 출력.
-- **라이브 params**: 좌/중/우 각각 threshold, 패턴 확정 debounce(`node_confirm_ms`),
-  중복방지(`node_debounce_ms`), **`node_advance`(노드 확정 후 회전/색읽기 전 전진량)**.
-- **판단 기록**: `NODE_CANDIDATE`/`NODE_CONFIRMED` 에 `bits`·`duration_ms`·`dist_mm` 를 남긴다.
-- **실패 #1 대응(분기/코너 오버슛)**: 노드를 너무 지나 회전하면 다음 라인에 못 올라탄다.
-  로그의 `dist_mm` 가 크면 `node_advance` 만 줄인다. `replay.py` 로 로봇 없이 재연 검증.
-- **Done**: 코스 위 각 노드 종류(T자, 십자, 좌/우 분기, 막다른 길)를 **노드 위에서** 멈춰
-  올바른 패턴으로 출력. 주행 중 흔들림에 오감지하지 않는다.
-- **메모**: Stage 1에서 확정한 하드웨어/주행 기반(모터 부호 `left=base-turn`/`right=base+turn`,
-  속도 기조)은 유지하되, **Stage 3 주행 판단은 좌·중·우 3센서 기반**(`decide_line3`)으로 한다
-  (중앙센서가 라인 위, 좌/우가 보조: `010`=직진, 왼쪽이 더 검으면 왼쪽·오른쪽이 더 검으면 오른쪽
-  보정). Stage 1 중앙센서 단일 PID 를 그대로 쓰지 않는다. "선 따라가다 노드에서 멈춤"까지만 —
-  **회전·색 판정은 안 함**(Stage 5/4).
+> **2026-07-02 확정**: 공식 구현체는 `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종 +
+> `lib/turns.pivot` 탱크 회전). 이전에 검토했던 아날로그 centroid(`pos`/`total`) 설계와
+> `stage3_node_detect.py`/`docs/specs/stage3_node_detect.md`(코드 미착수 상태였음)는 **폐기**
+> 되었다 — 자세한 경위는 [PROGRESS.md](../PROGRESS.md) 2026-07-02 로그 참조.
+
+- **목표**: 좌·중·우 3센서 raw 반사광 기반 PD 로 선을 추종하면서, 좌/우 3센서 흑/백
+  bits(`LCR`, 예 `110`/`111`=좌 분기, `011`=우 분기)로 분기를 감지하면 **정지 → 교차점 위로
+  전진(`branch_advance_mm`) → 제자리 탱크 90° 회전(`lib/turns.pivot`, Stage 2 확정 코드
+  재사용) → 다음 선 재포착 후 계속 추종**까지 한다. (예전엔 "감지만 하고 멈춤"이 Stage 3,
+  "감지 후 회전"은 Stage 5 몫이었다. v2 는 이 둘을 하나로 합쳤다 — 아래 Stage 5 메모 참조.)
+- **라이브 params(6개)**: `kp`(조향 게인), `base_speed`, `turn_speed`(탱크 회전 속도),
+  `turn_90_factor`(90° 보정계수, Stage 2 와 같은 방식), `branch_confirm_count`(분기 확정
+  연속횟수, 오탐 방지), `branch_advance_mm`(확정 후 회전 전 전진거리 = 회전 시점). 센서
+  threshold(좌43/중36/우42)·`kd`·`turn_limit`·`turn_180_factor` 등은 파일 상단 config 상수.
+- **판단 기록**: `BRANCH_LEFT`/`BRANCH_RIGHT`(bits, branch_seen, advance_mm) — 분기 확정 시.
+  회전 자체는 Stage 2 의 `TURN_LEFT`/`TURN_RIGHT`(target_deg, factor, enc_avg, error_deg) 를
+  그대로 재사용해 기록한다. 라인추종 중엔 `LINE_FOLLOW`(throttle).
+- **실패 #1 대응(분기/코너 오버슛)**: 너무 일찍 돌면 `branch_advance_mm` ↑, 직선에서 오회전하면
+  `branch_confirm_count` ↑(오탐 방지가 먼저, 그다음 회전 시점 보정). `replay.py` 로 분기 확정
+  타이밍(count/방향전환)을 로봇 없이 재연 검증.
+- **Done**: 코스 위 좌/우 분기 각각에서 **제자리 90° 회전으로 다음 선에 올라타 계속 추종**하는
+  것을 여러 번 재현하고, 주행 흔들림에 오회전하지 않는다.
+- **안 하는 것(다음 단계로 미룸)**: 노드 종류(T자/십자/막다른 길) 구분, 미리 정한 방향
+  **시퀀스**대로 도는 것(v2 는 "감지한 분기 쪽으로" 튼다), 색 판정 — Stage 5/4 로 남긴다.
+- **메모**: Stage 1/2 에서 확정한 하드웨어/주행 기반(모터 부호 `left=base-turn`/`right=base+turn`,
+  탱크 pivot 부호)은 그대로 재사용하며 수정하지 않는다(`lib/turns.pivot`, `lib/decide_turn.
+  decide_turn`). 라인추종은 3센서 raw 좌/우 차 기반 PD(`stage3v2_linetrace_branch.py` 의
+  `pd_step`)이며, 구 `decide_line3`(폐기된 아날로그/이전 bits-위치 방식) 는 더 이상 재사용
+  대상이 아니다.
 
 ## Stage 4 — 색상코드 노드 판정
 
@@ -86,6 +101,12 @@
   전환 직후 오판(0/엉뚱한 색) 없음.
 
 ## Stage 5 — 통합: 라인트레이싱 + 노드에서 분기 회전
+
+> **2026-07-02 메모**: Stage 3(v2)가 이미 "분기 감지 → 정지 → 전진 → 탱크 회전 → 재포착"을
+> 한다(감지된 분기 쪽으로 자동으로 튼다). Stage 5 에 남는 몫은 ① **미리 정한/입력받은 방향
+> 시퀀스**대로 도는 것(Stage 3 는 "보이는 분기 쪽" 고정) ② **노드 종류 구분**(T자/십자/막다른
+> 길 — Stage 3 는 좌/우 분기만 본다)이다. 착수 시 Stage 3 의 `stage3v2_linetrace_branch.py`
+> 함수(`black_bits`/`branch_side`/`pd_step`)를 그대로 재사용하고 새로 만들지 않는다.
 
 - **목표**: 선 추종 → 노드 감지 → (정해진/입력된 방향) 회전 → 다음 선 올라타기 를 연결.
 - **Done**: 미리 정한 회전 시퀀스(예: 좌,직,우,U)대로 코스를 노드마다 정확히 돌아 통과.

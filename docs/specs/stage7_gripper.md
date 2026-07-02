@@ -264,6 +264,12 @@ def deliver():                                   # 도착 노드에서 호출(St
 
 ## 11. 미해결 / 실기 확인 필요
 
+> **검토 반영 메모 (2026-07-02, Stage 3 v2 채택 전파).** 공식 Stage 3 구현체가
+> `lib/nodes.py:decide_line3`(아날로그 centroid 설계 포함)에서
+> `stages/stage3v2_linetrace_branch.py`로 교체됐다(아날로그 설계 폐기 —
+> [PROGRESS.md](../../PROGRESS.md) 2026-07-02 로그). 아래 "라인추종층 = Stage 3 3센서
+> `decide_line3`" 주석은 stale — Stage 7 착수 시 재사용 대상을 새 파일 함수로 다시 잡는다.
+
 > **검토 반영 메모 (antigravity #1, #7) — Stage 7 구현 시 반영.**
 > - **#1 초음파 비차단 읽기**: 아래 "감지 동시성" 의 권장 해법 — 구동층(`hardware.py`)에서
 >   초음파를 **백그라운드 스레드로 주기 폴링**하고, 제어 루프는 그 최신 snapshot 만 읽는다

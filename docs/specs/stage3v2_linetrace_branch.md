@@ -1,11 +1,13 @@
-# Stage 3 v2 — 라인트레이싱 + 분기 탱크 회전 구현 명세
+# Stage 3 v2 — 라인트레이싱 + 분기 탱크 회전 구현 명세 (공식 Stage 3 구현체)
 
-> 상태: DRAFT (실기 미검증)
+> 상태: REVIEWED — **2026-07-02 공식 Stage 3 로 채택**(사용자 결정, [PROGRESS.md](../../PROGRESS.md)
+>       2026-07-02 로그). 1차 파라미터 실기 튜닝 완료(`save` 반영), **전체 코스 통과는 아직
+>       미검증**. 실기 Done 표기는 명세가 아니라 [PROGRESS.md](../../PROGRESS.md) 의 🟢 로 한다.
 > 선행: Stage 1 주행 기반(모터 부호 `left=base-turn`/`right=base+turn`·트림) 실기 Done,
 >       Stage 2 탱크 회전([lib/turns.py](../../lib/turns.py)) 실기 Done, 인프라([00_infra_dashboard.md](00_infra_dashboard.md)) Done.
-> 통과기준(Done): 선 추종 중 좌/우 분기를 만나면 **제자리(탱크) 90° 회전**으로 다음 선에
->       올라타 계속 추종. 각 회전을 여러 번 재현하고, 주행 흔들림에 오회전하지 않는다.
->       (STAGES.md Stage 3 "노드 감지" + Stage 5 "노드에서 분기 회전" 을 잇는 **실험 통합 트랙**.)
+> 통과기준(Done): [STAGES.md](../STAGES.md) Stage 3 인용 — 코스 위 좌/우 분기 각각에서
+>       **제자리(탱크) 90° 회전**으로 다음 선에 올라타 계속 추종하는 것을 여러 번 재현하고,
+>       주행 흔들림에 오회전하지 않는다.
 
 ## 0. 배경 / 이 문서의 위치
 
@@ -14,9 +16,10 @@
   파일 안에서 **인라인 `run_encoder_turn` 으로 중복 구현**한다.
 - **v2 의 핵심 변경**: 회전을 Stage 2 에서 실기 Done 된 **`lib/turns.pivot`(엔코더 각도 +
   보정계수 탱크 회전)로 재사용**한다. 인라인 회전 코드는 제거한다(복붙 금지·AGENTS §1).
-- 표준 [stage3_node_detect.md](stage3_node_detect.md)(아날로그 노드 감지, 문서만)와는 **다른
-  트랙**이다. v2 는 bits 기반 only_linetrace 계열이고, 실기에서 어느 쪽으로 갈지는 §11 에서
-  결정한다. **둘 중 하나가 실기 Done 되면 다른 문서의 상태를 정리한다.**
+- **(2026-07-02 확정) 이 문서가 공식 Stage 3 명세다.** [stage3_node_detect.md](stage3_node_detect.md)
+  (아날로그 centroid 노드 감지, 코드 미착수)는 이 트랙과 설계가 충돌해 **폐기**됐다 — 사용자
+  결정, 경위는 [PROGRESS.md](../../PROGRESS.md) 2026-07-02 로그. 더 이상 "둘 중 하나 선택"
+  대기 상태가 아니다.
 
 ### 0.1 회전 방식 명확화 (탱크 vs 컴퍼스) — 반드시 읽는다
 
@@ -188,7 +191,11 @@ loop while not stop:
 - [x] 판단층 단위 테스트(`tests/test_stage3v2_logic.py`, 14개) + replay 어댑터
       `decide_branch`(confirm_count/cooldown/좌우 흔들림 재연, `tools/replay.py` 스모크 확인).
 - [x] Codex 교차검증(2026-07-02, `codex exec --model gpt-5.5`) 및 지적 반영(아래 §11.1).
-- [ ] 실기 보정 §7 → 값 확정 후 `save` + PROGRESS 기록. **그 전엔 Done 아님.**
+- [x] 실기 보정 §7 1차 진행 + `save` — 2026-07-02, 값: `kp=0.22`/`base_speed=17`/
+      `turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`
+      ([PROGRESS.md](../../PROGRESS.md) "Stage 3 v2 1차 실기 튜닝값" 참조).
+- [ ] 위 값으로 **전체 코스 통과**(좌/우 분기 반복 재현 + 모든 노드 종류) 확인 후 재 `save` +
+      PROGRESS Done 기록. **그 전엔 Done 아님.**
 
 ## 11. 미해결 / 실기 확인 필요
 
@@ -202,7 +209,8 @@ loop while not stop:
 - **`WHEEL_DIAM_MM`**: 56 가정 — 줄자 실측 후 갱신(`branch_advance_mm` 거리 정확도).
 - **U턴(막다른 길) 포함 여부**: `UTURN180`+`turn_180_factor` 로 확장 가능(기본은 좌/우만).
 - **`do follow` 자동 시작 vs 수동 트리거**: only_linetrace 는 시작 즉시 추종. 트리거식으로 바꿀지.
-- **stage3_node_detect.md(아날로그)와의 관계**: v2(bits)와 공존/대체 — 실기에서 방향 확정 후 정리.
+- ~~**stage3_node_detect.md(아날로그)와의 관계**: v2(bits)와 공존/대체~~ — **확정(2026-07-02):
+  v2 채택, 아날로그 폐기.** [PROGRESS.md](../../PROGRESS.md) 2026-07-02 로그 참조.
 
 ### 구현 시 내린 판단(2026-07-02, claude) — Codex 교차검증에서 재확인 요청
 

@@ -431,6 +431,15 @@ def return_run(live):
 
 ## 11. 미해결 / 실기 확인 필요
 
+> **검토 반영 메모 (2026-07-02, Stage 3 v2 채택 전파).** 공식 Stage 3 구현체가
+> `lib/nodes.py:decide_line3`(중앙 PID→3센서, 아날로그 centroid 설계)에서
+> `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종, `lib/turns.pivot` 분기 탱크회전)로
+> 교체됐다(아날로그 설계 폐기 — [PROGRESS.md](../../PROGRESS.md) 2026-07-02 로그). 위/아래 본문의
+> "라인추종층 = Stage 3 3센서 `decide_line3`" 주석은 **stale** — Stage 6 착수 시 재사용 대상을
+> `stage3v2_linetrace_branch.py` 함수로 다시 잡는다. v2 Stage 3 가 좌/우 분기에서 이미 자동
+> 회전을 하므로, 탐색 알고리즘이 "분기에서 멈춘 뒤 스스로 방향을 고른다"는 이 문서의 전제가
+> "Stage 3 의 자동 회전을 어떻게 탐색 로직이 override/관찰하는가"로 바뀌어야 하는지 결정 필요.
+
 > **복귀 경로 압축 메모 (2026-07-01) — 이번 변경의 배경.**
 > - 이전 인용 골격은 raw `path` 전체를 역순+반전해 복귀했다 → EXPLORE 때 들어간 막다른 길을
 >   RETURN 때도 되밟는 "복귀 삽질"이 발생. 사용자 요구는 "복귀는 지름길만".

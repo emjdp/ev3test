@@ -1,0 +1,8 @@
+{
+  "base_speed": 17,
+  "branch_advance_mm": 30,
+  "branch_confirm_count": 2,
+  "kp": 0.22,
+  "turn_90_factor": 0.66,
+  "turn_speed": 6
+}

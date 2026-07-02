@@ -332,7 +332,17 @@ def stage4_loop(params, hw, telem, events):
 
 ## 11. 미해결 / 실기 확인 필요
 
-> **검토 반영 메모 (2026-06-30, Stage 3 변경 전파).** Stage 3 가 중앙센서 단일 PID 재사용을
+> **검토 반영 메모 (2026-07-02, Stage 3 v2 채택 전파).** 공식 Stage 3 구현체가
+> `lib/nodes.py:decide_line3`(중앙 PID→3센서, 아날로그 centroid 설계 포함)에서
+> **`stages/stage3v2_linetrace_branch.py`(3센서 raw 차 PD `pd_step` + bits `black_bits`)로
+> 교체**됐다(아날로그 설계는 폐기 — [PROGRESS.md](../../PROGRESS.md) 2026-07-02 로그). 위
+> 2026-06-30 메모의 `decide_line3` 재사용 지시는 **stale** — Stage 4 착수 시 라인추종/노드
+> 감지 재사용 대상을 `stage3v2_linetrace_branch.py` 의 함수로 다시 잡는다. 또한 v2 Stage 3 는
+> 분기에서 **이미 자동으로 회전**하므로(감지된 쪽으로), "노드에서 멈춘 자리에서 색을 읽는다"는
+> 이 문서의 전제(§1)가 "회전 전에 멈춘 순간 읽는다"로 바뀌어야 하는지 착수 시 결정 필요.
+
+> **검토 반영 메모 (2026-06-30, Stage 3 변경 전파, ⚠️ 위 2026-07-02 메모로 대체됨— 참고용 보존).**
+> Stage 3 가 중앙센서 단일 PID 재사용을
 > 버리고 **좌/중/우 3센서 추종(`lib/nodes.py:decide_line3`)**으로 확정되었다. Stage 4 는 색
 > 읽기를 **Stage 3 위에** 얹으므로, 라인추종 재사용 대상은 `decide_line3` + Stage 3 노드 감지다
 > (Stage 1 은 부호/속도 기반만). 색 읽기 전 정지 위치/`node_advance` 손잡이는 Stage 3 그대로다.

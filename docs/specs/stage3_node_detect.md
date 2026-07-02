@@ -1,5 +1,11 @@
 # Stage 3 — 노드(분기) 감지 구현 명세
 
+> **⚠️ 폐기 (2026-07-02).** 아래 아날로그 centroid(`pos`/`total`) 설계는 코드 착수 전에
+> [stage3v2_linetrace_branch.md](stage3v2_linetrace_branch.md)(bits+PD 라인추종 + 탱크 회전,
+> `stages/stage3v2_linetrace_branch.py`)가 **공식 Stage 3 로 채택**되면서 대체됐다(사용자 결정,
+> [PROGRESS.md](../../PROGRESS.md) 2026-07-02 로그). **이 문서로 새로 구현하지 않는다** —
+> 히스토리 참고용으로만 남겨둔다.
+
 > 상태: DRAFT (실기 미검증, **2026-07-01 아날로그 방식으로 개정 — §0 참조**)
 > 선행: Stage 1(라인트레이싱) 실기 Done — 이 단계는 Stage 1에서 확정한 **하드웨어/주행
 > 기반**(모터 부호 `left=base-turn`/`right=base+turn`, 속도 기조)은 유지하되, **주행 판단은

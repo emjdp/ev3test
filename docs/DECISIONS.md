@@ -27,22 +27,22 @@
 
 | reason_code | 언제 | 같이 남기는 detail |
 |---|---|---|
-| `LINE_FOLLOW` | 라인추종 중 | reflect, pos, total, turn |
-| `NODE_CANDIDATE` | 노드 후보(Stage3 아날로그: `total>node_total_on` 진입) | total, pos, bits, reflect |
-| `NODE_CONFIRMED` | 노드 확정(total 이 confirm_mm 거리 지속) | total, bits, kind, run_mm, debounce_mm, dist_mm |
-| `CORNER_LEFT` / `CORNER_RIGHT` | 확정 노드 bits 가 110/011(종류 참고) | bits |
-| `CALIBRATE` | Stage3 `do calibrate` 센서 흰/검 스윕 완료 | white, black |
-| `BRANCH_LEFT` / `BRANCH_RIGHT` | Stage3 v2(bits 트랙): 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
-| `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유** | node_id, available_exits, selected, rule |
+| `LINE_FOLLOW` | 라인추종 중(throttle) | reflect, bits, error, turn |
+| `BRANCH_LEFT` / `BRANCH_RIGHT` | **Stage 3(공식, bits 트랙)**: 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
+| `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유) | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 부터는 node_id/available_exits/selected/rule 도 추가) |
 | `COLOR_READ` | 노드 색 읽음 | color, reflect(바닥/노드 구분), dist_since_node_mm |
 | `NODE_IS_GOAL` / `_CHECKPOINT` / `_START` | 색으로 노드 종류 확정 | color |
-| `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구(Stage3: total≈0) | total |
+| `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구 | reflect |
 | `PAUSE` / `RESUME` | 대시보드/robotctl 일시정지 토글 | source |
 | `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | source |
 
-> Stage 3(2026-07-01)부터 노드 감지는 **bits+시간(duration_ms)** 이 아니라 **총 어둠 total + 거리
-> (run_mm/dist_mm)** 기반이다(속도 무관). `LINE_FOLLOW` 도 중앙 PID error 대신 아날로그 `pos`.
-> 자세한 근거: [specs/stage3_node_detect.md](specs/stage3_node_detect.md) §0.
+> **(2026-07-02) 공식 Stage 3 는 bits 트랙(`stages/stage3v2_linetrace_branch.py`)이다.** 좌/중/우
+> 3센서 raw 차 기반 PD 로 추종하고, 분기 확정은 `total`/시간 지속이 아니라 **연속 확정 횟수
+> (`branch_confirm_count`) + 확정 후 전진거리(`branch_advance_mm`)** 로 갈린다. 이전에 검토했던
+> 아날로그 centroid(`pos`/`total`) 설계와 그 전용 reason_code `NODE_CANDIDATE`/`NODE_CONFIRMED`/
+> `CORNER_LEFT`/`CORNER_RIGHT`/`CALIBRATE` 는 **그 설계와 함께 폐기**됐다(코드 미착수 상태였음,
+> [specs/stage3_node_detect.md](specs/stage3_node_detect.md) 참조 — 과거 실측 로그에 남아있을
+> 수 있어 해석용으로만 이름을 남긴다). 새 로그에는 등장하지 않는다.
 
 > 새 판단을 추가할 때마다 이 표에 reason_code 를 1줄 추가한다. 카탈로그가 곧 "로봇이 할 수
 > 있는 판단의 전체 목록"이다.

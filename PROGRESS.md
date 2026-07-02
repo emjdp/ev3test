@@ -5,9 +5,12 @@
 
 ## 현재 단계
 
-**Stage 3 — 노드 감지 구현 + PC 검증 완료, 실기 검증 필요 (Stage 2 실기 Done)**
+**Stage 3 — `stage3v2_linetrace_branch.py`(bits+PD 라인추종 + 분기 탱크회전)를 공식 Stage 3 로
+확정(2026-07-02). 1차 파라미터 실기 튜닝 완료, 전체 코스(모든 노드 종류) 통과 검증은 아직
+(Stage 2 실기 Done)**
 (Stage 1 은 2026-06-30 사용자 판단으로 실기 Done 처리 — 아래 상태판/로그 참조.)
-**다음 단계는 Stage 3 가 실기 Done 된 뒤에야 Stage 4(색상코드 노드 판정)만 가능하다.**
+**다음 단계는 Stage 3 가 실기 Done(전체 코스 통과 확인) 된 뒤에야 Stage 4 착수 가능. 이후
+Stage 4~7 은 이 stage3v2 트랙(bits+PD 라인추종+탱크 회전)을 기반으로 응용해 구현한다.**
 
 ## 단계 상태판
 
@@ -16,7 +19,7 @@
 | Stage 0 연결/포트 확인 | 🟢 실기 Done | Python 3.5.3, 좌/우 전진 정상. `in1` FAIL 출력은 실물 확인 후 무시하고 통과 처리 |
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
-| Stage 3 노드 감지 | 🟡 진행 중 | **2026-07-01 아날로그 방식으로 설계 개정(문서 완료, 코드 미착수)**. 센서 붙어있음+선폭≈센서폭 → bits/시간 방식 한계. **centroid `pos`(조향) + 총어둠 `total`(노드 감지) + 센서 캘리브레이션**으로 전환. 스펙/DECISIONS 갱신. 구현은 3단계 이행(캘리브→조향→감지). **코드 구현+실기 검증 필요** |
+| Stage 3 노드 감지+분기 회전 | 🟡 진행 중 | **2026-07-02 `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기.** 1차 파라미터 실기 튜닝 완료(`save` 반영, 아래 "Stage 3 v2 1차 실기 튜닝값" 참조) — **이번 세션은 값 튜닝만 확인, 전체 코스(T자/십자/좌우분기/막다른 길) 통과는 미검증.** Done 전까지 Stage 4 착수 금지 |
 | Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
@@ -76,49 +79,50 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       Stage 2 확정 코드는 수정하지 않는다. [claude]
 - [x] (Stage 3) **코드 작성 + PC 검증 완료** — `stages/stage3_node_detect.py`, `lib/nodes.py`,
       `lib/hardware.py`(좌/우 반사광 + enc_avg 추가만), `tests/test_stage3_logic.py`. [claude]
-- [ ] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`.
+- [x] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local` — 2026-07-02 접속 확인.
 
-### Stage 3 — 아날로그 개정 구현 계획 (2026-07-01, 문서 완료 / 코드 미착수)
+### Stage 3 — 아날로그 개정 구현 계획 (2026-07-01, 문서만) — **폐기 (2026-07-02)**
 
-> **설계 결정**: 센서 3개가 붙어 있고(간격 고정 — 넓히면 000 오탐) 선폭≈센서폭이라, bits+시간
-> 방식은 `110`/`011` 이 주행 중 상시 떠서 노드/드리프트 구분이 근본적으로 어렵다. **아날로그로
-> 전환**: raw 를 센서별 흰/검으로 정규화(darkness 0~1) → **무게중심 `pos`(조향)** 과 **총 어둠
-> `total`(노드 감지)** 이라는 직교 두 물리량 사용. 드리프트는 total 보존(선이 옆으로 옮길 뿐),
-> 노드는 total 급증(검은 면적 추가) → **시간 지속 debounce 없이** 갈린다. 상세: spec §0.
-> ※ 사용자가 실측한 threshold 중간값(좌43/중36/우42)은 센서별 흰/검 midpoint 로, 캘리브레이션
->   초기 참고값이 된다(센서마다 다름을 재확인). 아날로그에선 이 midpoint 로 bits 를 자동 유도.
+> **폐기됨.** 아래 계획(centroid `pos`/총어둠 `total` 방식, `stage3_node_detect.py`/
+> `docs/specs/stage3_node_detect.md`)은 코드 착수 전에 **`stages/stage3v2_linetrace_branch.py`
+> (bits+PD 라인추종 + `lib/turns.pivot` 분기 탱크회전)를 공식 Stage 3 로 채택**하면서
+> 대체·폐기됐다(사용자 결정, 2026-07-02 — 아래 "Stage 3 v2 채택 확정" 작업 로그 참조).
+> 원문은 히스토리 참고용으로만 아래에 남긴다. **이 계획으로 이어받지 않는다.**
 
-**구현 3단계 (한 단계씩 PC검증→실기확인, 각 단계가 "한 번에 변수 하나")**
+<details>
+<summary>폐기된 아날로그 계획 원문 (참고용, 접기)</summary>
 
-1. **캘리브레이션(`do calibrate`)** — 필수 선행. `lib/calib.py`(정규화/load/save) +
-   `lib/hardware.py` 저속 pivot 스윕. 센서별 흰/검 → `config/stage3_calib.json`.
-   실기 검증: 중앙 선 위 `dark≈(0,1,0)`/`pos≈0`/`total≈1`, 흰 `total≈0`, 교차 `total≥2`.
-2. **아날로그 조향** — `lib/nodes.py` 에 `sensor_darkness`/`line_position`/`total_darkness` +
-   `decide_line3`(pos 기반 P)로 교체. `bits_from_raw`/`node_kind` 는 로그용 유지.
-   실기: 직선 곧게·걸침 부드럽게 복귀. (현재 `FOLLOW_GAIN` bits 방식은 이 단계에서 폐기.)
-3. **노드 감지(total)** — `NodeDetector`(total>on 이 confirm_mm 거리 지속, debounce_mm) 신설,
-   구 `NodeDebouncer`(bits+ms) 대체. 라이브 6개 교체(아래 표). reason_code CALIBRATE 추가.
+**설계 결정**: 센서 3개가 붙어 있고(간격 고정 — 넓히면 000 오탐) 선폭≈센서폭이라, bits+시간
+방식은 `110`/`011` 이 주행 중 상시 떠서 노드/드리프트 구분이 근본적으로 어렵다. **아날로그로
+전환**: raw 를 센서별 흰/검으로 정규화(darkness 0~1) → **무게중심 `pos`(조향)** 과 **총 어둠
+`total`(노드 감지)** 이라는 직교 두 물리량 사용. 드리프트는 total 보존(선이 옆으로 옮길 뿐),
+노드는 total 급증(검은 면적 추가) → **시간 지속 debounce 없이** 갈린다.
 
-**실기 보정 순서(구현 후)**: calibrate → `follow_kp` → `node_total_on` →
-`node_confirm_mm`/`node_debounce_mm` → `node_advance`. 모든 노드 종류 정지/출력 → `save`.
-**그 전에는 Stage 3 Done 으로 표시하지 않는다.**
+**구현 3단계(미착수)**: ① 캘리브레이션(`do calibrate`) ② 아날로그 조향(`sensor_darkness`/
+`line_position`/`total_darkness`/`decide_line3`) ③ 노드 감지(`total>node_total_on` 이
+`confirm_mm` 지속). 라이브 6개안: `follow_kp`/`follow_base_speed`/`node_total_on`/
+`node_confirm_mm`/`node_debounce_mm`/`node_advance`. 코드는 끝까지 작성되지 않았다.
 
-**새 라이브 params 6개(스펙 §3 확정, 코드 미반영)**
+</details>
 
-| 이름 | 기본값 | 의미/조정 |
-|---|---|---|
-| `follow_kp` | 25 | pos 당 turn. 과조향/흔들림 ↓, 곡선 못 따라감 ↑ |
-| `follow_base_speed` | 20 | 직진 속도. 곡선에서 빠르면 ↓ |
-| `node_total_on` | 1.7 | **노드 트리거**(darkness 합 0~3). 직선 오탐 ↑, 노드 못잡음 ↓ |
-| `node_confirm_mm` | 8 | total>on 지속 거리. 단발 오탐 ↑, 노드 지나침 ↓ |
-| `node_debounce_mm` | 60 | 재확정 금지 거리. 두 번 잡음 ↑ |
-| `node_advance` | 0 | **실패#1** 확정 후 전진. 오버슛 ↓ |
+### Stage 3 v2 1차 실기 튜닝값 (2026-07-02, 저장 완료 — 값 튜닝만 확인, 전체 코스 미검증)
 
-**config 상수(라이브 아님)**: 센서 캘리브레이션(`stage3_calib.json`), `follow_turn_limit`(35),
-`advance_speed`, `WHEEL_DIAM_MM`(56 가정 — 줄자 실측 후 갱신; `node_confirm_mm`/`advance` 거리 정확도).
+브릭 `~/ev3test/config/stage3v2_linetrace_branch.json` 에 저장된 값을 로컬 미러(위
+`config/stage3v2_linetrace_branch.json`)로 확인.
 
-> **구 bits/시간 방식 잔재**(현재 코드에 있음, 개정 시 교체 대상): `FOLLOW_GAIN`/`FOLLOW_SLOW_SPEED`,
-> `left/center/right_threshold` 라이브(43/36/42), `NodeDebouncer`(node_confirm_ms/node_debounce_ms).
+| param | 기본값(INITIAL_PARAMS) | 이번 저장값 | limit | max_step |
+|---|---|---|---|---|
+| `kp` | 0.22 | **0.22**(=) | 0.0..3.0 | 0.1 |
+| `base_speed` | 12 | **17** | 5..45 | 5 |
+| `turn_speed` | 6 | **6**(=) | 5..40 | 5 |
+| `turn_90_factor` | 1.0 | **0.66** | 0.5..2.0 | 0.05 |
+| `branch_confirm_count` | 4 | **2** | 1..20 | 2 |
+| `branch_advance_mm` | 20 | **30** | 0..120 | 10 |
+
+- **다음(§7 보정 절차 순서대로, 남은 단계)**: 위 값으로 좌/우 분기 각각 반복 재현 →
+  T자/십자/막다른 길(옵션) 포함 코스 끝까지 통과 확인 → 흔들림에 오회전 없는지 확인 →
+  전부 통과하면 그 시점 값으로 다시 `save` + 이 파일에 "Stage 3 Done" 기록.
+- **그 전엔 Stage 3 Done 아님**(STAGES.md 기준 — 모든 노드 종류를 노드 위에서 멈춰/회전).
 
 ### Stage 2 실기 검증 결과 (2026-06-30 Done)
 
@@ -162,6 +166,47 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-02 — Stage 3 v2 채택 확정 + 1차 실기값 반영 + 아날로그 설계 폐기 (Agent: claude)
+- **배경**: 사용자가 브릭에서 `stage3v2_linetrace_branch.py` 라이브 튜닝 세션을 진행하고
+  대시보드에서 `save`. 저장 결과: `status: save: ok saved on robot:
+  /home/robot/ev3test/config/stage3v2_linetrace_branch.json`.
+- **확인한 사실(사용자 답변 기준, 과잉 기록 방지)**: 이번 세션은 **파라미터 튜닝만** 확인됐다.
+  전체 코스(T자/십자/좌우분기/막다른 길 포함) 끝까지 통과했는지는 **아직 미검증** → Stage 3 를
+  🟢 실기 Done 으로 올리지 않았다(AGENTS.md "실기 미검증 결과를 '됨'으로 기록하기" 금지 준수).
+- **조치 1 — 브릭 config 회수**: `ssh robot@ev3dev.local 'cat ~/ev3test/config/stage3v2_linetrace_branch.json'`
+  로 확인 → 로컬 `config/stage3v2_linetrace_branch.json` 신규 생성(stage1/stage2 미러 선례와
+  동일 패턴). 값: `kp=0.22`(기본과 동일), `base_speed=17`, `turn_speed=6`(기본과 동일),
+  `turn_90_factor=0.66`, `branch_confirm_count=2`, `branch_advance_mm=30`.
+- **조치 2 — Stage 3 트랙 확정(사용자 결정)**: `stages/stage3v2_linetrace_branch.py`(bits+PD
+  라인추종 + `lib/turns.pivot` 탱크 회전)를 **공식 Stage 3 구현체로 확정**. 기존
+  `stage3_node_detect.py`/`docs/specs/stage3_node_detect.md`(아날로그 centroid 설계, 코드
+  미착수 상태였음)는 **폐기** — v2 와 설계가 정면 충돌(bits 이산 판단 vs 아날로그 연속 판단)해
+  둘 다 살려둘 이유가 없다고 판단. PROGRESS 상태판 Stage 3 행을 "노드 감지" → "노드 감지+분기
+  회전"으로 개명, 위 "Stage 3 — 아날로그 개정 구현 계획" 블록은 폐기 표시(접은 원문만 보존).
+- **조치 3 — 문서 갱신**:
+  - [docs/STAGES.md](docs/STAGES.md) Stage 3 절을 stage3v2 접근(3센서 bits + PD 조향 + 분기
+    확정 시 제자리 탱크 90° 회전 + 재포착)으로 다시 씀. 기존 "감지만 하고 멈춤" 정의를
+    "감지+회전까지"로 확장(원래 Stage 5 가 맡던 회전 통합의 일부를 흡수했음을 명시).
+  - [docs/specs/stage3v2_linetrace_branch.md](docs/specs/stage3v2_linetrace_branch.md) 상태를
+    DRAFT(실험 트랙)에서 **REVIEWED(공식 Stage 3 채택)**로 승격, §0/§11 의 "실험 트랙"·
+    "아날로그와 공존/대체 결정 대기" 문구를 "공식 채택, 아날로그 폐기"로 갱신.
+  - [docs/specs/stage3_node_detect.md](docs/specs/stage3_node_detect.md) 상단에 폐기 배너 추가
+    (stage3v2 로 대체됐음을 명시, 내용은 히스토리 보존을 위해 삭제하지 않음).
+  - [docs/specs/README.md](docs/specs/README.md) 표에서 두 문서의 관계(폐기/대체)를 반영.
+  - [docs/DECISIONS.md](docs/DECISIONS.md) reason_code 카탈로그 주석을 "Stage 3 는
+    total/거리 기반"→"Stage 3(v2) 는 bits+PD 조향, 분기 확정은 count+advance_mm 거리
+    기반"으로 갱신. `NODE_CANDIDATE`/`NODE_CONFIRMED`/`CALIBRATE` 는 폐기된 아날로그 트랙
+    전용이었음을 표에 명시(과거 로그 해석용으로만 유지).
+  - `stage4_color.md`/`stage5_integration.md`/`stage6_explore_return.md`/
+    `stage7_gripper.md` §11 에 "Stage 3 재사용 대상이 `decide_line3`(폐기)에서
+    `stage3v2_linetrace_branch.py` 의 `black_bits`/`branch_side`/`pd_step`+분기 탱크회전으로
+    바뀌었고, Stage 5 가 맡던 '분기 회전 통합'을 Stage 3 가 이미 포함한다"는 전파 메모만
+    추가(코드/본문 재작성은 각 단계 착수 시점에 — AGENTS.md §1 미래 단계 설계 금지 준수).
+- **다음(Stage 3 Done 전 남은 것)**: PROGRESS "Stage 3 v2 1차 실기 튜닝값" 블록의 순서대로
+  좌/우 분기 반복 재현 + 코스 전체 통과(모든 노드 종류) 확인 → `save` → 이 파일에 Done 기록.
+  Done 후에만 Stage 4 착수. **이후 Stage 4~7 은 stage3v2 트랙(bits+PD+탱크회전)을 기반으로
+  응용해 구현**(사용자 지시, 이 로그 상단 "현재 단계" 참조).
 
 ### 2026-07-02 — Stage 3 v2 구현 + Codex 교차검증 반영 (Agent: claude)
 - **범위**: [docs/specs/stage3v2_linetrace_branch.md](docs/specs/stage3v2_linetrace_branch.md)

@@ -50,6 +50,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
+- [ ] **Stage 3 v3 정지 후 제자리 회전 실험 구현(선택)** — 명세:
+      [docs/specs/stage3v3_stop_pivot_branch.md](docs/specs/stage3v3_stop_pivot_branch.md).
+      Stage 3 v2 Done 은 유지하되, v2 의 `turn_90_factor=0.66` 이
+      "라인추종 중 사전 회전 + 작은 pivot" 보상으로 맞춰진 점을 제거하는 실험 트랙이다.
+      핵심 요구: `110`/`011` 감지 즉시 정지 → 정지 상태 재확인 → `advance_mm=0` 제자리
+      탱크 회전. 구현/실기 검증 전까지 공식 Stage 3 구현체는 v2 그대로.
 - [x] **Stage 0 스크립트 작성**: `stages/stage0_check.py` (py_compile 통과, f-string 없음). [claude]
 - [x] **실기에서 Stage 0 실행** (`python3 stages/stage0_check.py`):
       Python 3.5.3 확정. outA/outB/outC OK, in2/in3/in4 OK. `in1` 은 두 번 모두
@@ -170,6 +176,18 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-02 — Stage 3 v3 정지 후 제자리 회전 명세 작성 (Agent: codex)
+- **배경**: 사용자가 Stage 3 v2 는 잘 작동하지만, `110`/`011` 지점에서 라인트레이싱이 먼저
+  조금 회전한 뒤 pivot 이 이어져 `turn_90_factor` 를 0.66 으로 낮춰 맞춘 편법이었다고 설명.
+- **명세 추가**: [docs/specs/stage3v3_stop_pivot_branch.md](docs/specs/stage3v3_stop_pivot_branch.md)
+  신규 작성(DRAFT). v2 의 주행/회전 재사용 구조는 유지하되, 자동 분기에서는
+  `branch_advance_mm` 을 제거하고 `110`/`011` 감지 즉시 `BRANCH_STOP` 으로 정지한 뒤
+  정지 상태 확인(`stop_settle_ms`, `stationary_confirm_count`) 후 `lib/turns.pivot` 으로
+  제자리 회전하도록 정의했다.
+- **주의**: Stage 3 공식 Done 구현체는 여전히 `stage3v2_linetrace_branch.py` 이며, v3 는
+  구현/실기 미검증 실험 명세다. v3 기본 `turn_90_factor` 는 v2 저장값 0.66 이 아니라
+  Stage 2 순수 회전값 0.9 에서 시작하도록 명시했다.
 
 ### 2026-07-02 — Stage 3 실기 Done 확정 (Agent: claude)
 - **사용자 확인**: "내가 보낸 튜닝값으로 재현했어" → 범위 재확인 질문에 **"좌/우 분기 모두

@@ -28,9 +28,7 @@
 | reason_code | 언제 | 같이 남기는 detail |
 |---|---|---|
 | `LINE_FOLLOW` | 라인추종 중(throttle) | reflect, bits, error, turn |
-| `BRANCH_STOP` | **Stage 3 v3(DRAFT)**: `110`/`011` 분기 후보를 보고 라인트레이싱을 끊고 즉시 정지 | bits, side, reflect, stop_settle_ms |
-| `BRANCH_CANCEL` | **Stage 3 v3(DRAFT)**: 정지 후 재확인에서 같은 분기가 아니어서 자동 회전을 취소 | initial_bits, stationary_bits, reflect |
-| `BRANCH_LEFT` / `BRANCH_RIGHT` | **Stage 3(공식, bits 트랙)**: 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen 또는 stationary_seen, advance_mm, reflect |
+| `BRANCH_LEFT` / `BRANCH_RIGHT` | **Stage 3(공식, bits 트랙)**: 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
 | `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유) | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 부터는 node_id/available_exits/selected/rule 도 추가) |
 | `COLOR_READ` | 노드 색 읽음 | color, reflect(바닥/노드 구분), dist_since_node_mm |
 | `NODE_IS_GOAL` / `_CHECKPOINT` / `_START` | 색으로 노드 종류 확정 | color |

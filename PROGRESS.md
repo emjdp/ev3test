@@ -50,12 +50,13 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
-- [ ] **Stage 3 v3 정지 후 제자리 회전 실험 구현(선택)** — 명세:
-      [docs/specs/stage3v3_stop_pivot_branch.md](docs/specs/stage3v3_stop_pivot_branch.md).
+- [ ] **Stage 3 v3 후보 위치(anchor) 보정 아이디어 보류** — 메모:
+      [docs/specs/stage3v3_anchor_pivot_idea.md](docs/specs/stage3v3_anchor_pivot_idea.md).
       Stage 3 v2 Done 은 유지하되, v2 의 `turn_90_factor=0.66` 이
-      "라인추종 중 사전 회전 + 작은 pivot" 보상으로 맞춰진 점을 제거하는 실험 트랙이다.
-      핵심 요구: `110`/`011` 감지 즉시 정지 → 정지 상태 재확인 → `advance_mm=0` 제자리
-      탱크 회전. 구현/실기 검증 전까지 공식 Stage 3 구현체는 v2 그대로.
+      "라인추종 중 사전 회전 + 작은 pivot" 보상으로 맞춰진 점을 나중에 제거할 수 있는
+      아이디어만 기록했다. 핵심은 원래 속도/원래 PD 로 주행하면서 `110`/`011` 첫 감지 위치를
+      anchor 로 저장하고, 거리 기반 이력으로 늦게 확정한 뒤 필요하면 backtrack 후 pivot 하는 것.
+      로직이 복잡하므로 현 시점 구현 의무 없음. 공식 Stage 3 구현체는 v2 그대로.
 - [x] **Stage 0 스크립트 작성**: `stages/stage0_check.py` (py_compile 통과, f-string 없음). [claude]
 - [x] **실기에서 Stage 0 실행** (`python3 stages/stage0_check.py`):
       Python 3.5.3 확정. outA/outB/outC OK, in2/in3/in4 OK. `in1` 은 두 번 모두
@@ -177,17 +178,16 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
-### 2026-07-02 — Stage 3 v3 정지 후 제자리 회전 명세 작성 (Agent: codex)
+### 2026-07-02 — Stage 3 v3 아이디어 메모로 축소 정리 (Agent: codex)
 - **배경**: 사용자가 Stage 3 v2 는 잘 작동하지만, `110`/`011` 지점에서 라인트레이싱이 먼저
   조금 회전한 뒤 pivot 이 이어져 `turn_90_factor` 를 0.66 으로 낮춰 맞춘 편법이었다고 설명.
-- **명세 추가**: [docs/specs/stage3v3_stop_pivot_branch.md](docs/specs/stage3v3_stop_pivot_branch.md)
-  신규 작성(DRAFT). v2 의 주행/회전 재사용 구조는 유지하되, 자동 분기에서는
-  `branch_advance_mm` 을 제거하고 `110`/`011` 감지 즉시 `BRANCH_STOP` 으로 정지한 뒤
-  정지 상태 확인(`stop_settle_ms`, `stationary_confirm_count`) 후 `lib/turns.pivot` 으로
-  제자리 회전하도록 정의했다.
-- **주의**: Stage 3 공식 Done 구현체는 여전히 `stage3v2_linetrace_branch.py` 이며, v3 는
-  구현/실기 미검증 실험 명세다. v3 기본 `turn_90_factor` 는 v2 저장값 0.66 이 아니라
-  Stage 2 순수 회전값 0.9 에서 시작하도록 명시했다.
+- **논의 정리**: 처음 쓴 "110/011 감지 즉시 정지 후 재확인" 안은 정상 라인트레이싱 중 잠깐
+  보이는 `110`/`011` 에도 자주 멈출 수 있어 폐기. 대신 원래 속도/원래 PD 로 진행하면서
+  `candidate_start_enc` 를 anchor 로 기록하고, 짧은 거리의 bits 이력으로 늦게 확정한 뒤
+  필요하면 backtrack 후 pivot 하는 아이디어만 남겼다.
+- **주의**: [docs/specs/stage3v3_anchor_pivot_idea.md](docs/specs/stage3v3_anchor_pivot_idea.md) 는
+  구현 명세가 아니라 DRAFT 아이디어 메모다. 로직이 복잡하므로 현 시점 구현 의무 없음.
+  Stage 3 공식 Done 구현체는 여전히 `stage3v2_linetrace_branch.py` 이다.
 
 ### 2026-07-02 — Stage 3 실기 Done 확정 (Agent: claude)
 - **사용자 확인**: "내가 보낸 튜닝값으로 재현했어" → 범위 재확인 질문에 **"좌/우 분기 모두

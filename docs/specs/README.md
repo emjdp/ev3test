@@ -26,7 +26,7 @@
 | [stage2_turns.md](stage2_turns.md) | 좌90/우90/U턴 (엔코더+보정계수, `do` 보정 루프) |
 | [stage3_node_detect.md](stage3_node_detect.md) | ⚠️ 폐기(2026-07-02, 아날로그 centroid 트랙, 코드 미착수) — stage3v2 로 대체됨 |
 | [stage3v2_linetrace_branch.md](stage3v2_linetrace_branch.md) | **공식 Stage 3**(2026-07-02 채택). only_linetrace 기반 라인추종 + 분기 **탱크 회전**(`lib/turns.pivot` 재사용, factor 90°, 회전 시점 튜닝) |
-| [stage3v3_stop_pivot_branch.md](stage3v3_stop_pivot_branch.md) | DRAFT. stage3v2 의 사전 회전 보상 편법을 제거하기 위한 실험 명세: `110`/`011` 감지 즉시 정지 후 제자리 탱크 회전 |
+| [stage3v3_anchor_pivot_idea.md](stage3v3_anchor_pivot_idea.md) | DRAFT 아이디어 메모. stage3v2 의 사전 회전 보상 편법을 나중에 제거하기 위한 후보 위치(anchor)+확정 후 보정 구상(구현 의무 없음) |
 | [stage4_color.md](stage4_color.md) | 색상코드 노드 판정, 색 읽기 위치, 실패#2 대응 |
 | [stage5_integration.md](stage5_integration.md) | 라인트레이싱 + 노드 분기 회전 통합 |
 | [stage6_explore_return.md](stage6_explore_return.md) | 탐색/복귀 알고리즘 |

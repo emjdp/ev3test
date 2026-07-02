@@ -163,6 +163,53 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-02 — Stage 3 v2 구현 + Codex 교차검증 반영 (Agent: claude)
+- **범위**: [docs/specs/stage3v2_linetrace_branch.md](docs/specs/stage3v2_linetrace_branch.md)
+  (DRAFT, 실험 통합 트랙) 구현 착수. **공식 Stage 3(아날로그 트랙, `stage3_node_detect.py`)
+  상태판은 그대로 두고 건드리지 않았다** — 이 작업은 병행 실험 트랙이라 단계 상태판을
+  바꾸지 않는다(Codex 검증에서도 이 점 재확인).
+- **신규**: `stages/stage3v2_linetrace_branch.py` — `only_linetrace.py`(커밋 069237d) 리팩토링.
+  - 인라인 `run_encoder_turn`/`wheel_dirs`/`encoder_target` 제거 → `lib/turns.pivot` +
+    `lib/decide_turn.decide_turn`(Stage 2 확정 코드, **둘 다 미수정**) 재사용. 수동
+    `do turn_left/right/uturn` 과 자동 분기 회전이 `_run_turn()` 한 곳을 공유.
+  - `branch_side(bits)` 로 좌(110/111)·우(011) 분기 모두 감지(구버전은 좌만).
+  - `advance_straight()`(엔코더 직진) 신설 + `branch_advance_mm` 반영 — 분기 확정 후
+    교차점 위로 전진한 다음 회전(only_linetrace 의 "confirm_count 를 상한 근처까지 올려도
+    일찍 도는" 문제의 정공법).
+  - 라이브 params 정확히 6개(`kp/base_speed/turn_speed/turn_90_factor/
+    branch_confirm_count/branch_advance_mm`). threshold(43/36/42 — only_linetrace 1차
+    실기 보정값 그대로)·kd·turn_limit·turn_180_factor 등은 파일 상단 config 상수.
+  - telemetry(`mode/bits/branch_seen/target_deg/enc_l·r·avg/advance_mm` 등) +
+    `BRANCH_LEFT`/`BRANCH_RIGHT` reason_code 신설 → `docs/DECISIONS.md` 카탈로그 1줄 추가.
+  - `decide_branch()` replay 어댑터 추가(`tools/replay.py --decider
+    stages.stage3v2_linetrace_branch:decide_branch`)로 confirm_count/cooldown 재연.
+- **신규**: `tests/test_stage3v2_logic.py` — 14개 테스트(black_bits/branch_side/
+  branch_confirm_step 카운팅+좌우흔들림무시/turn_target_deg 선형성/pd_step 부호·클램프/
+  advance_straight 도달·정지·pause/run_turn 좌우회전+로깅/decide_branch 재연 3건(정상/
+  쿨다운/흔들림)/LINE_FOLLOW throttle/params 안전 메타).
+- **Codex 교차검증(`codex exec --model gpt-5.5`)**: 지적 5건 접수, 상세는
+  [spec §11.1](docs/specs/stage3v2_linetrace_branch.md). 코드 수정 3건:
+  1. **[High] 분기 확정 카운터가 "같은 방향 연속"을 보장하지 않음** — `110/011` 이 번갈아
+     흔들려도 `side is not None` 이면 카운트가 쌓여 confirm_count 도달 시 **마지막 방향으로
+     오회전**할 수 있었다(실기 최우선 위험 후보). `branch_confirm_step`/`decide_branch`/
+     `run()` 에 `last_side` 추적을 추가해 방향이 바뀌면 1로 재시작하도록 수정.
+  2. **[Medium] `LINE_FOLLOW` reason 로그 누락** — follow 경로가 telemetry 만 publish 하고
+     판단 기록을 안 남겼다(§4/DECISIONS.md 요구사항). `stage3_node_detect.py` 의
+     `_maybe_follow_log` 패턴(주기 0.25s throttle)을 가져와 반영.
+  3. **[Low/Medium] advance 중 stop 이 걸려도 `_run_turn()` 까지 진행** — `pivot()` 자체는
+     안 돌지만 settle sleep·TURN 로그·beep 이 그대로 실행돼 "실제로 안 돈 회전"이 기록될
+     수 있었다. `advance_straight` 직후 `should_stop()` 재확인 후 회전 단계를 건너뛰도록 수정.
+  - 지적 2건은 코드 수정 없이 처리: "표준 Stage 3 이 아니라 실험 트랙"(이미 §0/§8/이 로그가
+    명시)과 "`do follow` 가 명세 본문과 다름"(§11 에 이미 의도적 차이로 기록).
+- **PC 검증(전부 통과, 수정 반영 후 재실행)**: `python3 -m py_compile stages/*.py lib/*.py
+  tools/*.py tests/*.py`, `tests/test_stage1_logic.py`~`test_stage3v2_logic.py`(신규 14개
+  포함), `tools/replay.py --decider stages.stage3v2_linetrace_branch:decide_branch` 스모크.
+- **상태**: PC 검증 완료. **실기 미검증 — Stage 3 v2 Done 아님.** §7 실기 보정 순서(threshold
+  확인 → kp → base_speed → turn_90_factor → turn_speed → branch_confirm_count →
+  branch_advance_mm) 대로 진행 후 `save` + 이 파일에 결과 기록 필요.
+- **다음**: 브릭 배포 후 §11 미해결 항목(탱크/컴퍼스 실기 관측, 좌/우 factor 분리 필요
+  여부, `do follow` 자동/수동 최종 결정) 실기로 확인.
+
 ### 2026-07-01 — Stage 3 v2 명세 작성(라인추종+분기 탱크 회전) — 문서만 (Agent: claude)
 - **요청**: only_linetrace 기반으로 "스테이지3 v2" 를 새로 짤 계획. **지금은 명세만.**
   좌/우 회전을 **탱크(제자리) 모드**로, **회전 시점 튜닝 가능**하게, **factor 로 90° 실기 보정**.

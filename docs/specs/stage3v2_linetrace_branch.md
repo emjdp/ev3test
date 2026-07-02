@@ -174,13 +174,20 @@ loop while not stop:
 
 ## 10. 구현 체크리스트 (이어받는 사람/에이전트용)
 
-- [ ] `only_linetrace.py` → `stage3v2_linetrace_branch.py` 정리·개명.
-- [ ] 인라인 `run_encoder_turn`/`wheel_dirs`/`encoder_target` 제거, `lib/turns.pivot` 호출로 대체.
-- [ ] `branch_side` 좌/우 일반화(only_linetrace 는 좌만).
-- [ ] `advance_straight`(엔코더 직진) + `branch_advance_mm` 반영.
-- [ ] 라이브 params **6개**로 축소(§3), 나머지 config 상수/`config/stage3v2_calib.json`.
-- [ ] telemetry/reason_code(`BRANCH_LEFT/RIGHT`) 반영, 필요 시 DECISIONS.md 1줄 추가.
-- [ ] 판단층 단위 테스트 + replay 시나리오(§9).
+- [x] `only_linetrace.py` → `stage3v2_linetrace_branch.py` 정리·개명(2026-07-02, claude).
+- [x] 인라인 `run_encoder_turn`/`wheel_dirs`/`encoder_target` 제거, `lib/turns.pivot` +
+      `lib/decide_turn.decide_turn`(Stage 2 재사용) 호출로 대체.
+- [x] `branch_side` 좌/우 일반화(110/111→left, 011→right).
+- [x] `advance_straight`(엔코더 직진) + `branch_advance_mm` 반영.
+- [x] 라이브 params **6개**로 축소(§3): kp/base_speed/turn_speed/turn_90_factor/
+      branch_confirm_count/branch_advance_mm. threshold(43/36/42)·kd·turn_limit·
+      turn_180_factor·post_turn_settle_ms·branch_cooldown_ms·loop_delay_ms·advance_speed·
+      WHEEL_DIAM_MM 은 파일 상단 config 상수(`config/stage3v2_calib.json` 은 아직 미도입 —
+      값이 적어 파일 상수로 충분하다고 판단, 필요해지면 분리).
+- [x] telemetry/reason_code(`BRANCH_LEFT/RIGHT`) 반영 + DECISIONS.md 카탈로그 1줄 추가.
+- [x] 판단층 단위 테스트(`tests/test_stage3v2_logic.py`, 14개) + replay 어댑터
+      `decide_branch`(confirm_count/cooldown/좌우 흔들림 재연, `tools/replay.py` 스모크 확인).
+- [x] Codex 교차검증(2026-07-02, `codex exec --model gpt-5.5`) 및 지적 반영(아래 §11.1).
 - [ ] 실기 보정 §7 → 값 확정 후 `save` + PROGRESS 기록. **그 전엔 Done 아님.**
 
 ## 11. 미해결 / 실기 확인 필요
@@ -196,3 +203,58 @@ loop while not stop:
 - **U턴(막다른 길) 포함 여부**: `UTURN180`+`turn_180_factor` 로 확장 가능(기본은 좌/우만).
 - **`do follow` 자동 시작 vs 수동 트리거**: only_linetrace 는 시작 즉시 추종. 트리거식으로 바꿀지.
 - **stage3_node_detect.md(아날로그)와의 관계**: v2(bits)와 공존/대체 — 실기에서 방향 확정 후 정리.
+
+### 구현 시 내린 판단(2026-07-02, claude) — Codex 교차검증에서 재확인 요청
+
+- **자동 시작 유지**: `do follow` 트리거 게이팅 대신 only_linetrace 와 동일하게 **프로그램
+  시작 즉시 추종**을 기본으로 뒀다(이미 실기 1차 보정된 동작을 그대로 유지해 위험을 줄이는
+  선택). 수동 `do turn_left/turn_right/uturn` 은 그 위에 별도 큐(`pending["turn"]`)로
+  얹어 회전 중엔 그 틱만 실행하고 넘어간다.
+- **회전 판단층에 `lib/decide_turn.decide_turn` 추가 재사용**: 명세 §2 는 새 함수
+  `turn_target_deg` 만 언급했지만, 그 목표각 계산은 Stage 2 `lib/decide_turn.py:
+  target_degrees` 와 완전히 같은 공식이라 **직접 재사용**(얇은 래퍼로 위임)했다. 수동/자동
+  회전 모두 `decide_turn(cmd, ...)` 한 곳을 거쳐 `TURN_LEFT`/`TURN_RIGHT`/`UTURN` reason 을
+  만든다(중복 구현 없음). `lib/decide_turn.py` 자체는 수정하지 않았다.
+- **텔레메트리 훅**: `lib/turns.pivot`/`advance_straight` 는 텔레메트리 파라미터가 없어,
+  호출부에서 `should_stop` 콜백에 부수효과(`_tick_stop`)를 얹어 회전/전진 중 프레임을
+  흘렸다(`pivot` 자체 미수정).
+- **kd 는 라이브→config 상수로 전환, 공식은 그대로**: only_linetrace 는 `kd` 를 **라이브
+  param** 으로 뒀고(`turn = kp*error + kd*derivative`), v2 §3 "config 로 내리는 값" 표는
+  `kd(0.05)` 를 config 로 내리도록 지정한다. v2 는 같은 공식(D항 유지)에서 `kd` 만 파일
+  상수 `KD=0.05` 로 고정했다(재배포 1회로만 조정, 라이브 6개엔 포함 안 함). 계산 자체가
+  달라진 건 아니다.
+
+### 11.1 Codex 교차검증(2026-07-02) 지적 + 반영
+
+`codex exec --model gpt-5.5` 로 구현체+lib 코드를 명세/AGENTS 기준 검증받았다. 지적 5건과
+처리 결과:
+
+1. **[High, 코드 수정함] 분기 확정 카운터가 "같은 방향 연속"을 보장하지 않음.** 원래
+   `branch_confirm_step` 은 `side is not None` 이면 직전이 좌였는지 우였는지 안 보고
+   카운트를 올렸다 → `110/011/110/011` 처럼 좌우가 번갈아 흔들려도 `confirm_count` 에
+   도달하면 **마지막으로 본 방향**으로 오회전할 수 있었다(실기 최우선 위험). **수정**:
+   `branch_confirm_step`/`decide_branch`/`run()` 모두 `last_side` 를 들고 다니다 방향이
+   바뀌면 카운트를 1로 재시작하도록 고쳤다. 회귀 테스트
+   `test_branch_confirm_step_ignores_oscillation`/`test_decide_branch_ignores_oscillating_sides`
+   추가(좌우 8회 교대 입력에서 confirm 이 전혀 안 뜨는지 확인).
+2. **[Medium, 이미 반영됨] AGENTS/STAGES 기준 표준 Stage 3 구현이 아니라 실험 트랙.**
+   명세 §0/§8 이 이미 "실험 통합 트랙"으로 명시하고 있고, PROGRESS 단계 상태판도 이 파일을
+   Stage 3 공식 구현으로 취급하지 않는다(별도 작업 로그로만 기록) — 추가 조치 없음, 문서
+   표현 유지.
+3. **[Medium, 코드 수정함] `LINE_FOLLOW` reason 로그 누락.** follow 경로가 telemetry 만
+   publish 하고 판단 기록을 안 남겼다(§4/DECISIONS.md 요구사항 미반영). **수정**:
+   `stage3_node_detect.py` 의 `_maybe_follow_log` 패턴을 그대로 가져와(`REASON_THROTTLE_S
+   =0.25`) follow 틱마다 주기적으로 `LINE_FOLLOW` 를 기록하게 했다. 단위테스트
+   `test_maybe_follow_log_throttles` 추가.
+4. **[Low/Medium, 코드 수정함] advance 중 stop 이 걸려도 `_run_turn()` 까지 진행.**
+   `pivot()` 자체는 stop 이면 안 돌지만, `_run_turn()` 은 settle sleep·`TURN_LEFT/RIGHT`
+   로그·beep 까지 그대로 실행돼 "실제로 안 돈 회전"이 기록에 남을 수 있었다. **수정**:
+   `advance_straight` 직후 `should_stop()` 을 확인해 True 면 회전 단계 전체를 건너뛰고
+   다음 루프(맨 위 EMERGENCY_STOP 처리)로 넘어가게 했다.
+5. **[Low, 조치 불필요] `do follow` 가 명세 본문과 다름.** §11 "구현 시 내린 판단"에 이미
+   자동 시작 유지가 의도적 차이로 기록돼 있어 추가 조치 없음(Codex 도 "문서화된 의도적
+   차이"로 확인).
+
+수정 후 재검증: `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+`tests/test_stage1_logic.py`~`test_stage3v2_logic.py`(14개, 신규 3개 포함) 전부 통과,
+`tools/replay.py --decider stages.stage3v2_linetrace_branch:decide_branch` 스모크 재확인.

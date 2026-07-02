@@ -32,6 +32,7 @@
 | `NODE_CONFIRMED` | 노드 확정(total 이 confirm_mm 거리 지속) | total, bits, kind, run_mm, debounce_mm, dist_mm |
 | `CORNER_LEFT` / `CORNER_RIGHT` | 확정 노드 bits 가 110/011(종류 참고) | bits |
 | `CALIBRATE` | Stage3 `do calibrate` 센서 흰/검 스윕 완료 | white, black |
+| `BRANCH_LEFT` / `BRANCH_RIGHT` | Stage3 v2(bits 트랙): 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
 | `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유** | node_id, available_exits, selected, rule |
 | `COLOR_READ` | 노드 색 읽음 | color, reflect(바닥/노드 구분), dist_since_node_mm |
 | `NODE_IS_GOAL` / `_CHECKPOINT` / `_START` | 색으로 노드 종류 확정 | color |

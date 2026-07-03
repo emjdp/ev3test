@@ -194,6 +194,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — 추가 실행 파일 커밋/푸시 처리 (Agent: codex)
+- **사용자 요청**: 현재 추가된 파일까지 커밋·푸시.
+- **반영 파일**: `stages/run_maze.py`, `stages/stage4_color.py`.
+- **검증**: PC에서 `python3 -m py_compile stages/run_maze.py stages/stage4_color.py` 통과.
+- **주의**: 두 파일 모두 브릭 실기 검증은 아직 필요하다.
+
 ### 2026-07-03 — Stage 4-D 관문(bench_toggle) 구현, 실기 go/no-go 대기 (Agent: claude)
 - **요청**: 사용자 "stage4d 구현해줘". 명세([stage4d_mode_interleave.md](docs/specs/stage4d_mode_interleave.md))
   §1/§10 상 D 는 **구현 전 `do bench_toggle` go/no-go 관문**이 있어, 이번 커밋은 관문

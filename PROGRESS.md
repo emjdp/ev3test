@@ -194,6 +194,22 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — EV3 실기 세션 일괄 실행 스크립트 추가 (Agent: codex)
+- **요청**: 매번 `scp` 업로드, SSH 포트포워딩, telemetry watcher, dashboard, robotctl 터미널을
+  따로 여는 반복 작업을 한 번에 실행하는 쉘 파일 작성. `ssh ev3` 로 접속 가능하다는 사용자
+  환경을 기본값으로 반영.
+- **신규**: `tools/ev3_session.sh`.
+  - 기본 실행 대상은 현재 실기 대기 중인 `stages/stage4d_mode_interleave.py`.
+  - 실행 전 `ssh ev3 'mkdir -p ~/ev3test/...'` 후 `scp` 로 `stages/*.py`, `lib/*.py`,
+    `tools/*.py`, `tools/*.sh`, `config/*.json` 을 브릭 `~/ev3test/` 아래에 업로드.
+  - 여러 터미널을 열어 브릭 stage 실행, `ssh -N -L 8765:127.0.0.1:8765 ev3` 터널,
+    `tools/telemetry_watcher.py`, `tools/dashboard.py`, robotctl 대기 셸을 각각 띄움.
+  - `--stage`, `--host`, `--remote-dir`, `--port`, `--no-upload`, `--terminal tmux`,
+    `--dry-run` 등 옵션 지원. GUI 터미널이 없으면 tmux 사용 가능.
+- **검증**: `bash -n tools/ev3_session.sh`, `tools/ev3_session.sh --help`,
+  `--no-upload --dry-run --terminal none`, `--no-upload --dry-run --terminal tmux` 로 로컬 검증.
+  실제 브릭 업로드/실행은 사용자가 실기 때 확인 필요.
+
 ### 2026-07-03 — 추가 실행 파일 커밋/푸시 처리 (Agent: codex)
 - **사용자 요청**: 현재 추가된 파일까지 커밋·푸시.
 - **반영 파일**: `stages/run_maze.py`, `stages/stage4_color.py`.

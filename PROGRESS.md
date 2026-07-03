@@ -205,6 +205,18 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — ev3_session 어디서든 실행 + stage 위치인자 지원 (Agent: codex)
+- **요청**: `/home/emjdp/dev/ev3test` 디렉토리에 들어가지 않고도 alias/PATH 단축어로 실행하고,
+  명령어 뒤에 `run_maze` 같은 `stages/` 파일명만 입력하면 자동 업로드+실행되게 개선.
+- **수정**: `tools/ev3_session.sh`.
+  - symlink 로 실행해도 실제 스크립트 위치를 따라가 repo root 를 찾도록 변경.
+  - `--stage` 없이 첫 번째 위치 인자를 stage 이름/경로로 받음
+    (`ev3sess run_maze`, `ev3sess stage4v2_color_follow`, `ev3sess stages/stage4_color.py`).
+  - help 에 추천 alias 예시 추가:
+    `alias ev3sess='/home/emjdp/dev/ev3test/tools/ev3_session.sh --terminal tmux'`.
+- **검증**: `bash -n`, help 출력, `/tmp` 에서 절대경로 dry-run, `/tmp` symlink dry-run 통과.
+  실제 브릭 실행은 실기 때 확인 필요.
+
 ### 2026-07-03 — Stage 4 v2 명세+구현: 중앙 상시 컬러 모드 라인추종 (Agent: claude)
 - **요청(사용자 방향 전환)**: "라인트레이싱할 때 가운데 센서는 컬러 모드, 나머지는 반사광
   모드로 하고, 이걸로 나중에 분기판단까지" — 반사광↔컬러 전환을 브릿지하던 A~D 대신

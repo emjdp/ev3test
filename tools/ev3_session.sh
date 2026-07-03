@@ -11,12 +11,23 @@
 #
 # 예:
 #   tools/ev3_session.sh
+#   tools/ev3_session.sh run_maze
 #   tools/ev3_session.sh --stage stages/stage3v2_linetrace_branch.py
 #   tools/ev3_session.sh --stage stage4_color --host ev3 --terminal tmux
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -h "${SOURCE}" ]]; do
+  SOURCE_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+  SOURCE_TARGET="$(readlink "${SOURCE}")"
+  case "${SOURCE_TARGET}" in
+    /*) SOURCE="${SOURCE_TARGET}" ;;
+    *) SOURCE="${SOURCE_DIR}/${SOURCE_TARGET}" ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 ROBOT_HOST="ev3"
@@ -29,12 +40,21 @@ UPLOAD="1"
 OPEN_ROBOTCTL="1"
 DRY_RUN="0"
 TMUX_SESSION=""
+STAGE_FROM_ARG="0"
 
 usage() {
   cat <<'EOF'
-Usage: tools/ev3_session.sh [options]
+Usage: tools/ev3_session.sh [options] [stage_name_or_path]
 
 EV3 실기 세션을 여러 터미널로 한 번에 띄운다.
+
+Examples:
+  ev3sess run_maze
+  ev3sess stage4v2_color_follow
+  ev3sess stages/stage4_color.py --terminal tmux
+
+Alias:
+  alias ev3sess='/home/emjdp/dev/ev3test/tools/ev3_session.sh --terminal tmux'
 
 Options:
   -s, --stage PATH_OR_NAME   실행할 stage 파일. 기본: stages/stage4d_mode_interleave.py
@@ -71,7 +91,9 @@ while (($#)); do
   case "$1" in
     -s|--stage)
       [[ $# -ge 2 ]] || die "--stage 값이 필요합니다"
+      [[ "${STAGE_FROM_ARG}" == "0" ]] || die "stage 는 한 번만 지정하세요"
       STAGE_INPUT="$2"
+      STAGE_FROM_ARG="1"
       shift 2
       ;;
     -h|--host)
@@ -127,7 +149,15 @@ while (($#)); do
       exit 0
       ;;
     *)
-      die "알 수 없는 옵션입니다: $1"
+      case "$1" in
+        -*)
+          die "알 수 없는 옵션입니다: $1"
+          ;;
+      esac
+      [[ "${STAGE_FROM_ARG}" == "0" ]] || die "stage 는 한 번만 지정하세요: ${STAGE_INPUT}, $1"
+      STAGE_INPUT="$1"
+      STAGE_FROM_ARG="1"
+      shift
       ;;
   esac
 done

@@ -20,7 +20,7 @@
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
-| Stage 4 색상코드 노드 판정 | 🟡 진행 중 | 2026-07-03 후보 D 관문(`stages/stage4d_mode_interleave.py`, `do bench_toggle`) 코드 구현·PC 검증 완료. **실기 bench go/no-go 판정 대기** — no-go 면 D 폐기 후 C 로. 후보 채택은 아직 미정 |
+| Stage 4 색상코드 노드 판정 | 🟡 진행 중 | 2026-07-03 후보 D 관문(`stages/stage4d_mode_interleave.py`, `do bench_toggle`) 코드 구현·PC 검증 완료. `stages/stage4_clolor_reflected.py` 색 마커 인식 후 자동 180도 회전 구현·PC 검증 완료. **둘 다 실기 검증 필요** |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
@@ -193,6 +193,21 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-03 — Stage 4 reflected 색 마커 인식 후 자동 U턴 추가 (Agent: codex)
+- **요청**: `stages/stage4_clolor_reflected.py` 에서 색상 인식이 되면 노드로 보고 180도 회전한 뒤
+  다시 라인트레이싱을 계속하도록 수정.
+- **반영**: 자동 반사광 게이트에서 마커를 확정하면 기존 인식 부저는 그대로 울리고,
+  Stage 3 v2/Stage 2 회전 경로(`_run_turn(..., "uturn")`)를 재사용해 180도 회전한다.
+  `_run_turn` 의 완료 부저는 자동 U턴에서만 mute proxy 로 막아, 사용자가 보고 있는
+  "색 인식 부저 1번" 신호가 섞이지 않게 했다. 수동 `robotctl do uturn` 은 기존대로 회전 완료
+  부저가 난다.
+- **판단 기록**: `MARKER_UTURN` reason_code 를 `docs/DECISIONS.md` 카탈로그에 추가. 자동 U턴
+  직전 marker/source/reflect/bits/color_code/rgb_ratio 를 기록한다.
+- **검증**: PC에서 `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py`, `python3 tests/test_stage3v2_logic.py` 통과.
+- **주의**: 브릭 실기 검증 필요. 색 마커 위에서 자동 U턴 후 같은 마커를 다시 읽지 않는지
+  `marker_cooldown_ms`(기본 1000ms)를 함께 본다.
 
 ### 2026-07-03 — 추가 실행 파일 커밋/푸시 처리 (Agent: codex)
 - **사용자 요청**: 현재 추가된 파일까지 커밋·푸시.

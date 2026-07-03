@@ -309,6 +309,37 @@ def beep_marker(hw, marker):
         pass
 
 
+class _MuteTurnBeepHw(object):
+    def __init__(self, hw):
+        self._hw = hw
+
+    def __getattr__(self, name):
+        return getattr(self._hw, name)
+
+    def beep_ok(self):
+        pass
+
+
+def run_marker_uturn(hw, params, log, tele, should_stop, should_pause,
+                     started, result, reflect, bits_str):
+    log.log("MARKER_UTURN", "COLOR_RECOGNIZED",
+            marker=result["marker"], marker_source=result["source"],
+            reflect=list(reflect), bits=bits_str,
+            color_code=result["color_code"],
+            center_reflect_avg=result["center_reflect_avg"],
+            rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
+    _publish(tele, params, started, mode="marker_uturn",
+             marker=result["marker"], marker_source=result["source"],
+             reflect=list(reflect), bits=bits_str,
+             color_code=result["color_code"],
+             center_reflect_avg=result["center_reflect_avg"],
+             rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
+    if should_stop():
+        return 0.0
+    return _run_turn(_MuteTurnBeepHw(hw), "uturn", params, log, tele,
+                     should_stop, should_pause, started)
+
+
 def read_marker_at_rest(hw, params, stop_flag, center_reflect_hint=None):
     sample_count = int(params["marker_sample_count"])
     sample_delay = params["marker_sample_delay_ms"] / 1000.0
@@ -509,8 +540,6 @@ def run():
             if marker_seen and not in_marker_cooldown:
                 hw.stop()
                 result = read_marker_at_rest(hw, snap, stop_flag, raw[1])
-                if result["marker"] is not None:
-                    beep_marker(hw, result["marker"])
                 log.log("COLOR_READ", "AUTO_REFLECT_GATE", marker=result["marker"],
                         marker_source=result["source"], reflect=list(raw),
                         center_reflect_avg=result["center_reflect_avg"],
@@ -527,6 +556,10 @@ def run():
                          rgb_ratio=result["rgb_ratio"],
                          marker_elapsed_ms=marker_elapsed,
                          branch_seen=branch_seen)
+                if result["marker"] is not None:
+                    beep_marker(hw, result["marker"])
+                    run_marker_uturn(hw, params, log, tele, should_stop,
+                                     should_pause, started, result, raw, bits_str)
                 pd.reset()
                 marker_tracker.reset()
                 branch_seen = 0

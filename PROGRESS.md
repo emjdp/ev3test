@@ -194,6 +194,19 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — Stage 4 reflected 의심 반사광 즉시 색상 읽기 변경 (Agent: codex)
+- **요청**: `stages/stage4_clolor_reflected.py` 에서 의심 반사광이 0.01초 이상 유지될 때까지 기다리지
+  말고, 의심 반사광이 보이면 바로 색상센서를 켜도록 수정.
+- **반영**: `MarkerCandidateTracker` 의 `marker_stable_ms` 지속시간 조건을 제거했다. 중앙 반사광이
+  `marker_candidate_min <= reflect < marker_candidate_max` 범위에 들어온 첫 제어 틱에서 즉시 정지
+  후 색상/RGB-RAW 읽기 → 인식 부저 → 자동 U턴 흐름으로 들어간다. 후보 범위 안에 계속 머무는
+  동안 중복 트리거를 막는 `confirmed_inside` 와, 인식 후 재트리거를 막는 `marker_cooldown_ms` 는 유지.
+- **호환성**: 브릭에 저장된 기존 params 와 dashboard 호환을 위해 `marker_stable_ms` 항목은 남겼지만,
+  판단에는 더 이상 사용하지 않는다(기본값 0, 허용범위 0..1000).
+- **검증**: PC에서 `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py`, 전체 `for t in tests/test_*.py; do python3 "$t"; done`
+  통과. **브릭 실기 검증 필요**.
+
 ### 2026-07-03 — Stage 4 reflected 색 마커 인식 후 자동 U턴 추가 (Agent: codex)
 - **요청**: `stages/stage4_clolor_reflected.py` 에서 색상 인식이 되면 노드로 보고 180도 회전한 뒤
   다시 라인트레이싱을 계속하도록 수정.

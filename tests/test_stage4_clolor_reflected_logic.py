@@ -74,7 +74,7 @@ def _params():
                         ui_step=UI_STEP, units=UNITS, param_order=PARAM_ORDER)
 
 
-def test_marker_candidate_tracker_confirms_after_stable_ms():
+def test_marker_candidate_tracker_confirms_immediately():
     params = dict(INITIAL_PARAMS)
     params["marker_candidate_min"] = 24
     params["marker_candidate_max"] = 35
@@ -85,11 +85,13 @@ def test_marker_candidate_tracker_confirms_after_stable_ms():
 
     tracker = MarkerCandidateTracker()
     seen, elapsed = tracker.push(26, 1000, params)
+    assert seen is True and elapsed == 0
+    seen, elapsed = tracker.push(26, 1001, params)
     assert seen is False and elapsed == 0
-    seen, elapsed = tracker.push(26, 1009, params)
-    assert seen is False and elapsed == 9
-    seen, elapsed = tracker.push(26, 1010, params)
-    assert seen is True and elapsed == 10
+    seen, elapsed = tracker.push(80, 1002, params)
+    assert seen is False and elapsed == 0
+    seen, elapsed = tracker.push(26, 1003, params)
+    assert seen is True and elapsed == 0
     print("marker candidate tracker ok")
 
 
@@ -134,6 +136,6 @@ def test_marker_uturn_reuses_uturn_without_extra_turn_beep():
 
 
 if __name__ == "__main__":
-    test_marker_candidate_tracker_confirms_after_stable_ms()
+    test_marker_candidate_tracker_confirms_immediately()
     test_rgb_classifier_purple_and_brown()
     test_marker_uturn_reuses_uturn_without_extra_turn_beep()

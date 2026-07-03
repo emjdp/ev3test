@@ -10,9 +10,9 @@ center-reflect gate for purple/brown markers:
 
   - purple reflect was measured near 26
   - brown reflect was measured near 32
-  - candidate must stay in range for marker_stable_ms (default 10 ms)
+  - candidate reflect triggers a color/RGB-RAW read immediately
 
-Reflect is only used as a candidate gate. Once the center sensor stays in that
+Reflect is only used as a candidate gate. Once the center sensor enters that
 gate, the robot stops, switches the center sensor to color/RGB-RAW mode, reads
 the marker, restores reflected-light mode, and then continues line tracing.
 
@@ -75,7 +75,7 @@ INITIAL_PARAMS = {
     "branch_advance_mm": 30,
     "marker_candidate_min": 24,
     "marker_candidate_max": 35,
-    "marker_stable_ms": 10,
+    "marker_stable_ms": 0,
     "marker_cooldown_ms": 1000,
     "marker_sample_count": 3,
     "marker_sample_delay_ms": 1,
@@ -97,7 +97,7 @@ PARAM_LIMITS = {
     "branch_advance_mm": (0, 120),
     "marker_candidate_min": (0, 100),
     "marker_candidate_max": (0, 100),
-    "marker_stable_ms": (5, 1000),
+    "marker_stable_ms": (0, 1000),
     "marker_cooldown_ms": (0, 5000),
     "marker_sample_count": (1, 30),
     "marker_sample_delay_ms": (0, 100),
@@ -204,11 +204,9 @@ def marker_candidate(center_reflect, params):
 
 class MarkerCandidateTracker(object):
     def __init__(self):
-        self.since_ms = None
         self.confirmed_inside = False
 
     def reset(self):
-        self.since_ms = None
         self.confirmed_inside = False
 
     def push(self, center_reflect, t_ms, params):
@@ -216,19 +214,11 @@ class MarkerCandidateTracker(object):
             self.reset()
             return False, 0
 
-        if self.since_ms is None:
-            self.since_ms = t_ms
-            elapsed = 0
-        else:
-            elapsed = t_ms - self.since_ms
-
         if self.confirmed_inside:
-            return False, elapsed
+            return False, 0
 
-        if elapsed >= int(params["marker_stable_ms"]):
-            self.confirmed_inside = True
-            return True, elapsed
-        return False, elapsed
+        self.confirmed_inside = True
+        return True, 0
 
 
 def classify_marker_by_color_code(color_code):

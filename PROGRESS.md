@@ -194,6 +194,27 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — run_maze 조향 게인 하향+라이브 개방, 000 후진 복구 추가 (Agent: claude)
+- **사용자 요청(실기)**: ① 스티어링이 너무 세다 → 낮추고 조절 가능하게. ② 라인트레이싱
+  중 커브 오인식으로 선을 벗어나면 좌/중/우 전부 흰색(000)이 되는데, 그때 이전 위치로
+  돌아올 수 있게.
+- **반영 ①**: `FOLLOW_GAIN=12.0` config 상수를 라이브 param `follow_gain`(기본 **8.0** 으로
+  하향, 범위 1..30, MAX_STEP 2)으로 승격. 라이브 params 8→9개.
+- **반영 ② (`stages/run_maze.py`)**: 000 확정 시 바로 유턴하지 않고 **저속 후진 재탐색**
+  (`backup_until_line`, 신규 — advance_straight 와 동일한 엔코더 폴링 패턴, stop/pause 즉시
+  반응). 폴링마다 중앙 색+좌/우 반사광을 읽어 `line_found`(중앙 검정 or 좌/우 <
+  th_steer)면 즉시 정지 → `LINE_RECOVER` 로그 후 추종 재개. 최대 `LOST_BACKUP_MM=100mm`
+  후진해도 못 찾으면 기존대로 유턴(`DEAD_END`/BACKUP_NO_LINE). **무한 반복 방지**: 복구
+  직후 `LOST_RETRY_WINDOW_MS=4000ms` 안에 또 000 이면(진짜 선 끝) 재시도 없이 유턴
+  (`DEAD_END`/LOST_AGAIN_AFTER_RECOVER). reason 은 기존 카탈로그 `LINE_LOST`/`LINE_RECOVER`
+  재사용(신규 코드 없음). `BACKUP_SPEED=10`/`LOST_BACKUP_MM`/`LOST_RETRY_WINDOW_MS` 는
+  config 상수(라이브 아님 — 실기가 요구하면 그때 개방).
+- **PC 검증**: py_compile + `tests/test_run_maze_logic.py` 17→**신규 4건 추가**(line_found
+  조건/후진 중 발견/최대거리 포기/stop·zero) 전부 통과.
+- **실기 미검증**: follow_gain 8.0 적정 여부, 커브 이탈 시 후진 복구 성공률(후진은 직선인데
+  이탈 궤적은 곡선일 수 있음 — LOST_BACKUP_MM 100mm 로 부족하면 조정), 진짜 막다른 길에서
+  4초 창 내 재유실→유턴 동작.
+
 ### 2026-07-03 — run_maze base_speed 라이브 개방 (Agent: claude)
 - **사용자 요청(실기)**: 대시보드에서 속도 조절이 안 됨 → `base_speed` 를 라이브 param 으로.
 - **반영**: `stages/run_maze.py` — `BASE_SPEED=20` config 상수를 라이브 param

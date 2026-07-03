@@ -18,10 +18,17 @@ v4 탐색 로직 (미로를 모른다는 전제):
   - 이 로직으로 지도상 노드 3개(우상단 2, 중앙 1)는 방문 못함 — 완주 우선,
     노드 살리기는 다음 단계.
 
+선 유실 복구(2026-07-03 실기 요청): 커브를 오인식해 선을 벗어나면 좌/중/우 전부
+흰색(000)이 되는데, 원래는 곧장 막다른 길로 보고 유턴했다. 이제 000 확정 시 먼저
+**저속 후진(backup_until_line)으로 최대 LOST_BACKUP_MM 만큼 되짚으며** 선을 재탐색한다
+(LINE_LOST → 찾으면 LINE_RECOVER 후 추종 재개). 못 찾거나, 복구 직후
+LOST_RETRY_WINDOW_MS 안에 또 000 이 되면(진짜 선 끝 = 막다른 길) 기존대로 유턴한다.
+
 라이브 튜닝(이 파일이 실제로 만지는 손잡이만, docs/LIVE_TUNING.md): 원문(첨부 v4)에 ★/⚠
 로 "실기에서 보정 필요"라고 표시된 값 + 실기에서 요청된 base_speed 만 SharedParams 로
 노출한다 — 나머지 확정 게인·타이밍은 이 파일 상단 config 상수로 고정한다.
   - `base_speed`                       : 주행 속도. 실기 요청(2026-07-03)으로 라이브 개방.
+  - `follow_gain`                      : 조향 게인. 실기 요청(2026-07-03)으로 낮추고 라이브 개방.
   - `left_th_steer` / `right_th_steer` : ⚠ 흔들리면 66~67 로 낮출 것(원문 경고).
   - `node_advance_mm`                  : ★ 확정 후 재판정/회전 전 전진량.
   - `turn_90_factor` / `turn_180_factor`: ★ 과/부족 시 0.05 단위 미세조정.
@@ -74,11 +81,12 @@ from lib.turns import pivot                                          # noqa: E40
 
 
 # =====================================================================
-# 라이브 params — 원문(v4)이 ★/⚠ 로 표시한 값 7개 + base_speed(실기 요청) = 8개.
+# 라이브 params — 원문(v4)이 ★/⚠ 로 표시한 값 7개 + base_speed/follow_gain(실기 요청) = 9개.
 # =====================================================================
 
 INITIAL_PARAMS = {
     "base_speed": 20,         # 주행 속도(%). 실기 요청(2026-07-03)으로 라이브 개방
+    "follow_gain": 8.0,       # 조향 게인. 원문 12.0 → 실기 요청으로 하향+라이브 개방
     "left_th_steer": 69,      # ⚠ 흔들림 증상 나오면 66~67 로 낮출 것(원문 경고)
     "right_th_steer": 67,
     "node_advance_mm": 30,    # ★ 확정 후 재판정/회전 전 전진량
@@ -90,6 +98,7 @@ INITIAL_PARAMS = {
 
 PARAM_LIMITS = {
     "base_speed": (5, 45),
+    "follow_gain": (1.0, 30.0),
     "left_th_steer": (0, 100),
     "right_th_steer": (0, 100),
     "node_advance_mm": (0, 120),
@@ -101,6 +110,7 @@ PARAM_LIMITS = {
 
 MAX_STEP = {
     "base_speed": 5,
+    "follow_gain": 2.0,
     "left_th_steer": 3,
     "right_th_steer": 3,
     "node_advance_mm": 10,
@@ -112,6 +122,7 @@ MAX_STEP = {
 
 UI_STEP = {
     "base_speed": 1,
+    "follow_gain": 0.5,
     "left_th_steer": 1,
     "right_th_steer": 1,
     "node_advance_mm": 10,
@@ -131,8 +142,9 @@ UNITS = {
     "grip_speed": "%",
 }
 PARAM_ORDER = [
-    "base_speed", "left_th_steer", "right_th_steer", "node_advance_mm",
-    "turn_90_factor", "turn_180_factor", "grab_dist_cm", "grip_speed",
+    "base_speed", "follow_gain", "left_th_steer", "right_th_steer",
+    "node_advance_mm", "turn_90_factor", "turn_180_factor",
+    "grab_dist_cm", "grip_speed",
 ]
 
 # =====================================================================
@@ -145,10 +157,14 @@ RIGHT_TH_DEEP = 41
 LEFT_TH_NODE = 20
 RIGHT_TH_NODE = 18
 
-# --- Stage 3 확정값: bits 추종 (base_speed 는 라이브 param 으로 승격, 위 참조) ---
-FOLLOW_GAIN = 12.0
+# --- Stage 3 확정값: bits 추종 (base_speed/follow_gain 은 라이브 param 승격, 위 참조) ---
 TURN_LIMIT = 35
 SLOW_SPEED = 12
+
+# --- 선 유실(000) 후진 복구 ---
+LOST_BACKUP_MM = 100        # 최대 후진 거리(mm). 이 안에서 선 못 찾으면 막다른 길로 판정
+BACKUP_SPEED = 10           # 후진 속도(%). 지나친 선을 놓치지 않게 저속 고정
+LOST_RETRY_WINDOW_MS = 4000 # 복구 직후 이 시간 안에 또 000 이면 재시도 없이 유턴(무한 반복 방지)
 
 # --- Stage 3 확정값: 노드 판정 타이밍 ---
 NODE_CONFIRM_MS = 120
@@ -242,6 +258,12 @@ def choose_branch(has_left, has_right, has_straight, exclude):
     return "U"
 
 
+def line_found(reflect_l, center_color, reflect_r, th_left, th_right):
+    """후진 복구 중 '선 위로 돌아왔다' 판정: 중앙이 검정이거나 좌/우가 조향 임계값 아래."""
+    return (center_color == COL_BLACK or
+            reflect_l < th_left or reflect_r < th_right)
+
+
 def clamp(v, lo, hi):
     if v < lo:
         return lo
@@ -293,6 +315,53 @@ def advance_straight(hw, distance_mm, speed, should_stop=None, should_pause=None
         hw.stop()
 
     return hw.enc_avg() * MM_PER_DEG
+
+
+def backup_until_line(hw, max_mm, speed, th_left, th_right,
+                      should_stop=None, should_pause=None):
+    """000(선 유실) 시 저속 후진하며 선 재탐색(커브 오인식 이탈 복구).
+
+    폴링마다 중앙 색/좌우 반사광을 읽어 line_found 면 즉시 정지. max_mm 까지
+    후진해도 못 찾으면 found=False (호출부가 막다른 길로 처리). 폴링 패턴은
+    advance_straight 와 동일(stop/pause 즉시 반응). 반환: (found, dist_mm).
+    """
+    hw.reset_encoders()
+    if max_mm <= 0:
+        hw.stop()
+        return False, 0.0
+    if should_stop is not None and should_stop():
+        hw.stop()
+        return False, 0.0
+
+    target_deg = max_mm / MM_PER_DEG
+    found = False
+    hw.drive(-speed, -speed)
+    try:
+        while True:
+            if should_stop is not None and should_stop():
+                break
+            if should_pause is not None and should_pause():
+                hw.drive(0, 0)
+                while should_pause():
+                    if should_stop is not None and should_stop():
+                        break
+                    time.sleep(0.01)
+                if should_stop is not None and should_stop():
+                    break
+                hw.drive(-speed, -speed)
+            c = hw.read_center_color_value()
+            rl = hw.read_left_reflect()
+            rr = hw.read_right_reflect()
+            if line_found(rl, c, rr, th_left, th_right):
+                found = True
+                break
+            if hw.enc_avg() >= target_deg:
+                break
+            time.sleep(0.005)
+    finally:
+        hw.stop()
+
+    return found, hw.enc_avg() * MM_PER_DEG
 
 
 def _tick_stop(base_should_stop, on_tick):
@@ -393,6 +462,8 @@ def run():
 
     state = {"visits": 0, "arrived": False, "grabbed": False,
              "last_turn": None, "returning": False}
+    # 선 유실 복구 이력: 직전 복구 시각. LOST_RETRY_WINDOW_MS 안의 재유실은 막다른 길로 본다.
+    lost = {"last_recover_t": -1e9}
 
     def on_stop(source):
         stop_flag["on"] = True
@@ -452,8 +523,34 @@ def run():
     def handle_node(bits):
         hw.stop()
 
-        if bits == (0, 0, 0):            # 선/색 모두 없는 막다른 지점 → 유턴 복귀
-            log.log("DEAD_END", "NO_LINE_NO_COLOR", bits=bits_to_str(bits))
+        if bits == (0, 0, 0):            # 전부 흰색: 커브 오인식 이탈 또는 진짜 선 끝
+            snap = params.snapshot()
+            retry_ok = ((time.monotonic() - lost["last_recover_t"]) * 1000
+                        >= LOST_RETRY_WINDOW_MS)
+            if retry_ok:
+                log.log("LINE_LOST", "ALL_WHITE_BACKUP", bits=bits_to_str(bits),
+                        backup_mm=LOST_BACKUP_MM)
+
+                def on_backup_tick():
+                    _publish(tele, params, started, mode="lost_backup",
+                             enc_avg=hw.enc_avg() * MM_PER_DEG)
+
+                found, dist = backup_until_line(
+                    hw, LOST_BACKUP_MM, BACKUP_SPEED,
+                    snap["left_th_steer"], snap["right_th_steer"],
+                    _tick_stop(should_stop, on_backup_tick), should_pause)
+                if should_stop():
+                    return
+                if found:
+                    # 선 위로 복귀 — 추종 재개(유턴/returning 없음). 같은 자리서 곧바로
+                    # 또 000 이 되면(진짜 선 끝) 다음 번엔 재시도 없이 유턴한다.
+                    log.log("LINE_RECOVER", "BACKUP_FOUND_LINE", dist_mm=round(dist, 1))
+                    lost["last_recover_t"] = time.monotonic()
+                    return
+                log.log("DEAD_END", "BACKUP_NO_LINE", bits=bits_to_str(bits),
+                        dist_mm=round(dist, 1))
+            else:
+                log.log("DEAD_END", "LOST_AGAIN_AFTER_RECOVER", bits=bits_to_str(bits))
             _run_turn(hw, "uturn", params, log, tele, should_stop, should_pause, started)
             state["returning"] = True
             return
@@ -623,7 +720,7 @@ def run():
 
             # (5) 계단식 조향 (걸친 만큼 틀기)
             err = line_error(l_lv, c_color == COL_BLACK, r_lv)
-            turn = clamp(FOLLOW_GAIN * err, -TURN_LIMIT, TURN_LIMIT)
+            turn = clamp(snap["follow_gain"] * err, -TURN_LIMIT, TURN_LIMIT)
             base = SLOW_SPEED if nbits in SLOW_ON else snap["base_speed"]
             left_speed = clamp(base - turn, -100, 100)
             right_speed = clamp(base + turn, -100, 100)

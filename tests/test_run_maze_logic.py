@@ -21,7 +21,7 @@ from lib.telemetry import Telemetry                       # noqa: E402
 from lib.shared_params import SharedParams                # noqa: E402
 from stages.run_maze import (                              # noqa: E402
     steer_level, line_error, bits_node, choose_branch, clamp, bits_to_str,
-    advance_straight, _run_turn,
+    line_found, advance_straight, backup_until_line, _run_turn,
     COL_BLACK, COL_YELLOW, BASE_PIVOT_DEG_90,
     INITIAL_PARAMS, PARAM_LIMITS, MAX_STEP, PARAM_ORDER, UI_STEP, UNITS,
     LEFT_TH_DEEP, RIGHT_TH_DEEP, LEFT_TH_NODE, RIGHT_TH_NODE,
@@ -76,6 +76,16 @@ class FakeHw(object):
 
     def beep_ok(self):
         pass
+
+    # backup_until_line 용 센서(기본: 전부 흰 바닥)
+    def read_center_color_value(self):
+        return 6  # 흰색
+
+    def read_left_reflect(self):
+        return 80
+
+    def read_right_reflect(self):
+        return 80
 
 
 # --- 걸침 깊이 단계 -----------------------------------------------------------
@@ -178,6 +188,65 @@ def test_advance_straight_stop_and_pause():
     print("advance_straight stop/pause ok")
 
 
+# --- 선 유실(000) 후진 복구 ------------------------------------------------------
+
+def test_line_found_conditions():
+    # 중앙 검정이면 발견
+    assert line_found(80, COL_BLACK, 80, 69, 67) is True
+    # 좌/우가 조향 임계값 아래면 발견
+    assert line_found(50, 6, 80, 69, 67) is True
+    assert line_found(80, 6, 50, 69, 67) is True
+    # 전부 흰 바닥이면 미발견
+    assert line_found(80, 6, 80, 69, 67) is False
+    # 경계: reflect < threshold 일 때만
+    assert line_found(69, 6, 67, 69, 67) is False
+    assert line_found(68, 6, 80, 69, 67) is True
+    print("line_found conditions ok")
+
+
+class LineAppearsHw(FakeHw):
+    """센서 판독 appear_after 회 이후 중앙에 검정 선이 나타나는 가짜 hw(후진 복구 모사)."""
+
+    def __init__(self, appear_after=3, enc_step=12.0):
+        FakeHw.__init__(self, enc_step=enc_step)
+        self.appear_after = appear_after
+        self.color_reads = 0
+
+    def read_center_color_value(self):
+        self.color_reads += 1
+        return COL_BLACK if self.color_reads > self.appear_after else 6
+
+
+def test_backup_until_line_finds_line():
+    hw = LineAppearsHw(appear_after=3)
+    found, dist = backup_until_line(hw, 100.0, 10, 69, 67, should_stop=lambda: False)
+    assert found is True
+    assert hw.stopped is True
+    assert hw.drive_history[0] == ("drive", -10, -10)   # 후진으로 출발
+    assert dist < 100.0                                  # 최대 거리 전에 발견
+    print("backup_until_line finds line ok")
+
+
+def test_backup_until_line_gives_up_at_max():
+    hw = FakeHw()   # 센서가 계속 흰 바닥
+    found, dist = backup_until_line(hw, 60.0, 10, 69, 67, should_stop=lambda: False)
+    assert found is False
+    assert dist >= 60.0
+    assert hw.stopped is True
+    print("backup_until_line gives up at max ok")
+
+
+def test_backup_until_line_stop_and_zero():
+    hw = FakeHw()
+    found, dist = backup_until_line(hw, 100.0, 10, 69, 67, should_stop=lambda: True)
+    assert found is False and dist == 0.0 and hw.drive_history == []
+
+    hw = FakeHw()
+    found, dist = backup_until_line(hw, 0, 10, 69, 67)
+    assert found is False and dist == 0.0 and hw.stopped is True
+    print("backup_until_line stop/zero ok")
+
+
 # --- 회전 1회(_run_turn) — 판단(Stage2 재사용)+구동(pivot)+로깅 통합 -----------------
 
 def test_run_turn_logs_turn_left_and_right():
@@ -205,11 +274,12 @@ def test_run_turn_logs_turn_left_and_right():
     print("run_turn TURN_LEFT/RIGHT ok")
 
 
-# --- params 안전 메타(★/⚠ 7개 + base_speed 실기 요청 = 8개만 라이브) ----------------
+# --- params 안전 메타(★/⚠ 7개 + base_speed/follow_gain 실기 요청 = 9개만 라이브) -----
 
 def test_param_safety_metadata():
-    assert len(INITIAL_PARAMS) == 8
+    assert len(INITIAL_PARAMS) == 9
     assert "base_speed" in INITIAL_PARAMS
+    assert "follow_gain" in INITIAL_PARAMS
     assert set(PARAM_LIMITS.keys()) == set(INITIAL_PARAMS.keys())
     assert set(MAX_STEP.keys()) == set(INITIAL_PARAMS.keys())
     assert set(PARAM_ORDER) == set(INITIAL_PARAMS.keys())
@@ -225,6 +295,10 @@ def main():
     test_clamp_and_bits_to_str()
     test_advance_straight_reaches_distance_and_zero()
     test_advance_straight_stop_and_pause()
+    test_line_found_conditions()
+    test_backup_until_line_finds_line()
+    test_backup_until_line_gives_up_at_max()
+    test_backup_until_line_stop_and_zero()
     test_run_turn_logs_turn_left_and_right()
     test_param_safety_metadata()
     print("ALL run_maze logic tests passed")

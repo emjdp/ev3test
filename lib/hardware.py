@@ -26,6 +26,11 @@ Stage 4 추가(2026-07-03): 중앙센서 반사광↔컬러 모드 전환을 위
   - read_center_color(settle_s, dummy_reads) : 컬러 모드 전환 + settle + 더미읽기 후 color 1회.
   - restore_reflect_mode(settle_s)           : 반사광 모드 복귀 + settle.
 
+Stage 4 v2 추가(2026-07-03): 중앙 상시 컬러 모드 트랙(stage4v2_color_follow.md)용으로
+아래 메서드를 **추가만** 한다. 기존 메서드/__init__ 불변.
+  - read_side_reflect()     : 좌/우 반사광만 — 중앙 모드를 건드리지 않는다.
+  - read_center_color_now() : 컬러 모드 유지 전제의 color 1회(전환/settle 없음).
+
 규약: 브릭 코드는 Python 3.5 안전 — f-string 금지, .format() 사용.
 """
 
@@ -178,3 +183,23 @@ class Ev3Hardware(object):
         _ = self._center.reflected_light_intensity  # 모드 복귀 트리거
         if settle_s > 0:
             time.sleep(settle_s)
+
+    # --- Stage 4 v2 추가(중앙 상시 컬러 모드 트랙, stage4v2_color_follow.md §2). 위 불변. ---
+
+    def read_side_reflect(self):
+        """좌/우 반사광만 (l, r). 중앙센서를 건드리지 않는다.
+
+        read_reflect() 는 중앙 반사광 속성을 읽어 중앙 모드를 COL-REFLECT 로 되돌리므로
+        중앙 상시 컬러 모드 트랙(Stage 4 v2)에서는 반드시 이 메서드를 쓴다.
+        """
+        self._ensure_side_sensors()
+        return (self._left_sensor.reflected_light_intensity,
+                self._right_sensor.reflected_light_intensity)
+
+    def read_center_color_now(self):
+        """in2 color 1회 — 전환/settle/더미읽기 없음.
+
+        시작 시 read_center_color() 로 컬러 모드에 들어간 뒤 매 루프 호출용.
+        ev3dev2 는 모드가 같으면 재전환하지 않으므로 추가 비용이 없다.
+        """
+        return self._center.color

@@ -31,7 +31,7 @@
 | `BRANCH_LEFT` / `BRANCH_RIGHT` | **Stage 3(공식, bits 트랙)**: 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
 | `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유) | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 부터는 node_id/available_exits/selected/rule 도 추가) |
 | `COLOR_READ` | 노드 색 읽음 (Stage 4-D 관문 `do read_color` 정지 실측도 이 코드 — method:"at_rest", slot_ms 추가) | color, reflect(바닥/노드 구분), dist_since_node_mm |
-| `MARKER_UTURN` | Stage 4 반사광 게이트에서 색 마커를 확정해 자동 180도 회전을 트리거 | marker, marker_source, reflect, bits, color_code, center_reflect_avg, rgb_ratio |
+| `MARKER_UTURN` | Stage 4 반사광 게이트에서 brown 색상코드를 확정해 자동 180도 회전을 트리거 | marker, marker_source, reflect, bits, color_code, center_reflect_avg |
 | `REFLECT_READ` | Stage 4 `do read_reflect` 정지 실측(§7-0a 공통 선결) | reflect(L/C/R) |
 | `BENCH_TOGGLE` | Stage 4-D 관문 `do bench_toggle` 완료 — rule 이 GO/NO_GO 판정(max 기준, budget=BLIND_BUDGET_MS) | avg_ms, max_ms, k, settle_ms, dummy, zero_reads, budget_ms |
 | `NODE_IS_GOAL` / `_CHECKPOINT` / `_START` | 색으로 노드 종류 확정 | color |

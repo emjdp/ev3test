@@ -15,9 +15,9 @@ from lib.shared_params import SharedParams                    # noqa: E402
 from lib.telemetry import Telemetry                           # noqa: E402
 from stages.stage4_clolor_reflected import (                  # noqa: E402
     INITIAL_PARAMS, PARAM_LIMITS, MAX_STEP, PARAM_ORDER, UI_STEP, UNITS,
-    BASE_PIVOT_DEG_180, TURN_180_FACTOR,
-    MarkerCandidateTracker, marker_candidate, classify_marker_by_rgb,
-    run_marker_uturn,
+    BASE_PIVOT_DEG_180, TURN_180_FACTOR, COLOR_BROWN,
+    MarkerCandidateTracker, marker_candidate, classify_marker_by_color_code,
+    read_marker_at_rest, run_marker_uturn,
 )
 
 
@@ -68,6 +68,31 @@ class FakeHw(object):
         self.beep_count += 1
 
 
+class FakeMarkerHw(FakeHw):
+    def __init__(self, colors):
+        FakeHw.__init__(self)
+        self.colors = list(colors)
+        self.color_calls = 0
+        self.rgb_calls = 0
+        self.restore_calls = 0
+
+    def read_center_reflect(self):
+        return 32
+
+    def read_center_color(self, settle_s, dummy_reads):
+        self.color_calls += 1
+        if self.colors:
+            return self.colors.pop(0)
+        return 0
+
+    def read_center_rgb(self, settle_s, dummy_reads):
+        self.rgb_calls += 1
+        raise AssertionError("RGB-RAW must not be read for node judgment")
+
+    def restore_reflect_mode(self, settle_s):
+        self.restore_calls += 1
+
+
 def _params():
     return SharedParams(INITIAL_PARAMS, PARAM_LIMITS, MAX_STEP,
                         os.path.join(_ROOT, "config", "_test_stage4_reflected_unused.json"),
@@ -95,12 +120,28 @@ def test_marker_candidate_tracker_confirms_immediately():
     print("marker candidate tracker ok")
 
 
-def test_rgb_classifier_purple_and_brown():
+def test_brown_color_code_is_marker_without_rgb():
     params = dict(INITIAL_PARAMS)
-    assert classify_marker_by_rgb((60, 20, 60), params) == "purple"
-    assert classify_marker_by_rgb((80, 30, 20), params) == "brown"
-    assert classify_marker_by_rgb((10, 80, 10), params) is None
-    print("rgb classifier ok")
+    params["marker_sample_count"] = 3
+    params["marker_sample_delay_ms"] = 0
+
+    assert classify_marker_by_color_code(COLOR_BROWN) == "brown"
+    assert classify_marker_by_color_code(0) is None
+
+    hw = FakeMarkerHw([COLOR_BROWN, COLOR_BROWN, 0])
+    result = read_marker_at_rest(hw, params, {"on": False}, center_reflect_hint=32)
+    assert result["marker"] == "brown"
+    assert result["source"] == "color_code_brown"
+    assert result["color_code"] == COLOR_BROWN
+    assert "rgb" not in result and "rgb_ratio" not in result
+    assert "rgb_samples" not in result and hw.rgb_calls == 0
+
+    hw = FakeMarkerHw([0, 0, COLOR_BROWN])
+    result = read_marker_at_rest(hw, params, {"on": False}, center_reflect_hint=32)
+    assert result["marker"] is None
+    assert result["source"] == "unknown"
+    assert hw.rgb_calls == 0
+    print("brown color code marker ok")
 
 
 def test_marker_uturn_reuses_uturn_without_extra_turn_beep():
@@ -111,11 +152,9 @@ def test_marker_uturn_reuses_uturn_without_extra_turn_beep():
     params = _params()
     result = {
         "marker": "brown",
-        "source": "rgb_raw",
+        "source": "color_code_brown",
         "center_reflect_avg": 32.0,
-        "color_code": 7,
-        "rgb": (80.0, 30.0, 20.0),
-        "rgb_ratio": (0.615, 0.231, 0.154),
+        "color_code": COLOR_BROWN,
     }
 
     actual = run_marker_uturn(
@@ -137,5 +176,5 @@ def test_marker_uturn_reuses_uturn_without_extra_turn_beep():
 
 if __name__ == "__main__":
     test_marker_candidate_tracker_confirms_immediately()
-    test_rgb_classifier_purple_and_brown()
+    test_brown_color_code_is_marker_without_rgb()
     test_marker_uturn_reuses_uturn_without_extra_turn_beep()

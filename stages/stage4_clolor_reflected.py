@@ -6,18 +6,17 @@ Run on EV3:
     python3 stages/stage4_clolor_reflected.py
 
 This stage keeps the Stage 3 v2 line-tracing/branch behavior and adds a quick
-center-reflect gate for purple/brown markers:
+center-reflect gate for the brown node marker:
 
-  - purple reflect was measured near 26
   - brown reflect was measured near 32
-  - candidate reflect triggers a color/RGB-RAW read immediately
+  - candidate reflect triggers a color-code read immediately
 
 Reflect is only used as a candidate gate. Once the center sensor enters that
-gate, the robot stops, switches the center sensor to color/RGB-RAW mode, reads
-the marker, restores reflected-light mode, and then continues line tracing.
+gate, the robot stops, switches the center sensor to color mode, reads the
+marker, restores reflected-light mode, and then continues line tracing.
 
-The EV3 color code has no purple code. Brown does have a code, so brown color
-code is trusted first. Purple/brown separation then uses RGB channel ratios.
+The EV3 color code for brown is stable in this setup, so COLOR_BROWN(7) alone
+is treated as the node marker. RGB-RAW values are not used for node judgment.
 
 Python 3.5 compatible: no f-strings.
 """
@@ -227,52 +226,12 @@ def classify_marker_by_color_code(color_code):
     return None
 
 
-def rgb_ratios(rgb):
-    if rgb is None:
-        return None
-    total = float(rgb[0] + rgb[1] + rgb[2])
-    if total <= 0:
-        return None
-    return (rgb[0] / total, rgb[1] / total, rgb[2] / total)
-
-
-def classify_marker_by_rgb(rgb, params):
-    ratios = rgb_ratios(rgb)
-    if ratios is None:
-        return None
-
-    red, green, blue = ratios
-    if red >= params["brown_red_ratio_min"] and blue <= params["brown_blue_ratio_max"]:
-        return "brown"
-
-    if (red >= params["purple_red_ratio_min"] and
-            blue >= params["purple_blue_ratio_min"] and
-            green <= params["purple_green_ratio_max"]):
-        return "purple"
-
-    return None
-
-
-def classify_marker(color_code, rgb, params):
-    # Brown has an EV3 color code; purple does not. Trust brown code first.
+def classify_marker(color_code):
     color_kind = classify_marker_by_color_code(color_code)
     if color_kind == "brown":
-        return "brown", "color_code_brown_override"
-
-    rgb_kind = classify_marker_by_rgb(rgb, params)
-    if rgb_kind is not None:
-        return rgb_kind, "rgb_raw"
+        return "brown", "color_code_brown"
 
     return None, "unknown"
-
-
-def mean_rgb(values):
-    if not values:
-        return None
-    count = float(len(values))
-    return (sum([value[0] for value in values]) / count,
-            sum([value[1] for value in values]) / count,
-            sum([value[2] for value in values]) / count)
 
 
 def majority(values):
@@ -288,13 +247,8 @@ def majority(values):
 
 
 def beep_marker(hw, marker):
-    count = 1
-    if marker == "purple":
-        count = 2
     try:
-        for _ in range(count):
-            hw.beep_ok()
-            time.sleep(0.06)
+        hw.beep_ok()
     except Exception:
         pass
 
@@ -316,14 +270,12 @@ def run_marker_uturn(hw, params, log, tele, should_stop, should_pause,
             marker=result["marker"], marker_source=result["source"],
             reflect=list(reflect), bits=bits_str,
             color_code=result["color_code"],
-            center_reflect_avg=result["center_reflect_avg"],
-            rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
+            center_reflect_avg=result["center_reflect_avg"])
     _publish(tele, params, started, mode="marker_uturn",
              marker=result["marker"], marker_source=result["source"],
              reflect=list(reflect), bits=bits_str,
              color_code=result["color_code"],
-             center_reflect_avg=result["center_reflect_avg"],
-             rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
+             center_reflect_avg=result["center_reflect_avg"])
     if should_stop():
         return 0.0
     return _run_turn(_MuteTurnBeepHw(hw), "uturn", params, log, tele,
@@ -342,31 +294,25 @@ def read_marker_at_rest(hw, params, stop_flag, center_reflect_hint=None):
         reflect_samples = 1
 
     color_reads = []
-    rgb_reads = []
     settle_s = params["color_mode_settle_ms"] / 1000.0
     dummy_reads = int(params["color_dummy_reads"])
     for _ in range(sample_count):
         if stop_flag["on"]:
             break
         color_reads.append(hw.read_center_color(settle_s, dummy_reads))
-        rgb_reads.append(hw.read_center_rgb(settle_s, dummy_reads))
         if sample_delay > 0:
             time.sleep(sample_delay)
     hw.restore_reflect_mode(settle_s)
 
     color_code = majority(color_reads) if color_reads else COLOR_NONE
-    rgb = mean_rgb(rgb_reads)
-    marker, source = classify_marker(color_code, rgb, params)
+    marker, source = classify_marker(color_code)
     return {
         "marker": marker,
         "source": source,
         "center_reflect_avg": reflect_avg,
         "color_code": color_code,
-        "rgb": rgb,
-        "rgb_ratio": rgb_ratios(rgb),
         "reflect_samples": reflect_samples,
         "color_samples": len(color_reads),
-        "rgb_samples": len(rgb_reads),
     }
 
 
@@ -383,8 +329,6 @@ def _publish(tele, params, started, **overrides):
         "marker_source": None,
         "center_reflect_avg": None,
         "color_code": None,
-        "rgb": None,
-        "rgb_ratio": None,
         "marker_elapsed_ms": 0,
         "branch_seen": 0,
     }
@@ -453,7 +397,7 @@ def run():
     last_marker_ms = -999999
     last_follow_log = started - REASON_THROTTLE_S
 
-    print("stage4 color ready (Stage 3 v2 line trace + purple/brown markers). "
+    print("stage4 color ready (Stage 3 v2 line trace + brown marker). "
           "stop via robotctl stop or Ctrl-C.")
 
     try:
@@ -482,7 +426,7 @@ def run():
                 pending["beep"] = False
 
             if beep_test:
-                beep_marker(hw, "purple")
+                beep_marker(hw, "brown")
                 _publish(tele, params, started, mode="beep_test")
                 continue
 
@@ -496,15 +440,11 @@ def run():
                 log.log("COLOR_READ", "MANUAL", marker=result["marker"],
                         marker_source=result["source"],
                         center_reflect_avg=result["center_reflect_avg"],
-                        color_code=result["color_code"],
-                        rgb=result["rgb"],
-                        rgb_ratio=result["rgb_ratio"])
+                        color_code=result["color_code"])
                 _publish(tele, params, started, mode="manual_marker",
                          marker=result["marker"], marker_source=result["source"],
                          center_reflect_avg=result["center_reflect_avg"],
-                         color_code=result["color_code"],
-                         rgb=result["rgb"],
-                         rgb_ratio=result["rgb_ratio"])
+                         color_code=result["color_code"])
                 pd.reset()
                 marker_tracker.reset()
                 continue
@@ -534,16 +474,12 @@ def run():
                         marker_source=result["source"], reflect=list(raw),
                         center_reflect_avg=result["center_reflect_avg"],
                         color_code=result["color_code"],
-                        rgb=result["rgb"],
-                        rgb_ratio=result["rgb_ratio"],
                         marker_elapsed_ms=marker_elapsed)
                 _publish(tele, params, started, mode="marker",
                          reflect=list(raw), bits=bits_str,
                          marker=result["marker"], marker_source=result["source"],
                          center_reflect_avg=result["center_reflect_avg"],
                          color_code=result["color_code"],
-                         rgb=result["rgb"],
-                         rgb_ratio=result["rgb_ratio"],
                          marker_elapsed_ms=marker_elapsed,
                          branch_seen=branch_seen)
                 if result["marker"] is not None:

@@ -194,6 +194,15 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — run_maze base_speed 라이브 개방 (Agent: claude)
+- **사용자 요청(실기)**: 대시보드에서 속도 조절이 안 됨 → `base_speed` 를 라이브 param 으로.
+- **반영**: `stages/run_maze.py` — `BASE_SPEED=20` config 상수를 라이브 param
+  `base_speed`(기본 20, 범위 5..45, MAX_STEP 5 — stage3v2 와 동일 한도)로 승격. 라이브
+  params 는 7→8개. `SLOW_SPEED`(노드 후보 위 감속 12%)와 `STRAIGHT_SPEED`/`TURN_SPEED` 는
+  config 상수 유지(요청 범위는 주행 속도만 — 한 번에 변수 하나).
+- **PC 검증**: py_compile + `tests/test_run_maze_logic.py`(param 메타 8개로 갱신) 통과.
+- **실기 미검증**: 대시보드에서 base_speed 조절 반영 여부 브릭에서 확인 필요.
+
 ### 2026-07-03 — run_maze.py v4 로직 반영 + 라이브 튜닝/대시보드 인프라 연결 (Agent: claude)
 - **요청**: 사용자가 완주 로직 v4(우>좌>직 우선순위 + 직전 분기 기억 + 매 노드 재판정)
   본문을 제공, `run_maze.py` 내용을 그걸로 교체하고 다른 스테이지처럼 실시간 대시보드가

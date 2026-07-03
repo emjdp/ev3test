@@ -205,10 +205,11 @@ def test_run_turn_logs_turn_left_and_right():
     print("run_turn TURN_LEFT/RIGHT ok")
 
 
-# --- params 안전 메타(★/⚠ 표시된 실기 보정값 7개만 라이브) -------------------------
+# --- params 안전 메타(★/⚠ 7개 + base_speed 실기 요청 = 8개만 라이브) ----------------
 
 def test_param_safety_metadata():
-    assert len(INITIAL_PARAMS) == 7
+    assert len(INITIAL_PARAMS) == 8
+    assert "base_speed" in INITIAL_PARAMS
     assert set(PARAM_LIMITS.keys()) == set(INITIAL_PARAMS.keys())
     assert set(MAX_STEP.keys()) == set(INITIAL_PARAMS.keys())
     assert set(PARAM_ORDER) == set(INITIAL_PARAMS.keys())

@@ -19,8 +19,9 @@ v4 탐색 로직 (미로를 모른다는 전제):
     노드 살리기는 다음 단계.
 
 라이브 튜닝(이 파일이 실제로 만지는 손잡이만, docs/LIVE_TUNING.md): 원문(첨부 v4)에 ★/⚠
-로 "실기에서 보정 필요"라고 표시된 값만 SharedParams 로 노출한다 — 조향/노드 임계값,
-Stage 2/3 확정 게인·타이밍은 이미 검증된 값이라 이 파일 상단 config 상수로 고정한다.
+로 "실기에서 보정 필요"라고 표시된 값 + 실기에서 요청된 base_speed 만 SharedParams 로
+노출한다 — 나머지 확정 게인·타이밍은 이 파일 상단 config 상수로 고정한다.
+  - `base_speed`                       : 주행 속도. 실기 요청(2026-07-03)으로 라이브 개방.
   - `left_th_steer` / `right_th_steer` : ⚠ 흔들리면 66~67 로 낮출 것(원문 경고).
   - `node_advance_mm`                  : ★ 확정 후 재판정/회전 전 전진량.
   - `turn_90_factor` / `turn_180_factor`: ★ 과/부족 시 0.05 단위 미세조정.
@@ -73,10 +74,11 @@ from lib.turns import pivot                                          # noqa: E40
 
 
 # =====================================================================
-# 라이브 params — 원문(v4)이 ★/⚠ 로 실기 보정 필요라고 표시한 값만(7개).
+# 라이브 params — 원문(v4)이 ★/⚠ 로 표시한 값 7개 + base_speed(실기 요청) = 8개.
 # =====================================================================
 
 INITIAL_PARAMS = {
+    "base_speed": 20,         # 주행 속도(%). 실기 요청(2026-07-03)으로 라이브 개방
     "left_th_steer": 69,      # ⚠ 흔들림 증상 나오면 66~67 로 낮출 것(원문 경고)
     "right_th_steer": 67,
     "node_advance_mm": 30,    # ★ 확정 후 재판정/회전 전 전진량
@@ -87,6 +89,7 @@ INITIAL_PARAMS = {
 }
 
 PARAM_LIMITS = {
+    "base_speed": (5, 45),
     "left_th_steer": (0, 100),
     "right_th_steer": (0, 100),
     "node_advance_mm": (0, 120),
@@ -97,6 +100,7 @@ PARAM_LIMITS = {
 }
 
 MAX_STEP = {
+    "base_speed": 5,
     "left_th_steer": 3,
     "right_th_steer": 3,
     "node_advance_mm": 10,
@@ -107,6 +111,7 @@ MAX_STEP = {
 }
 
 UI_STEP = {
+    "base_speed": 1,
     "left_th_steer": 1,
     "right_th_steer": 1,
     "node_advance_mm": 10,
@@ -116,6 +121,7 @@ UI_STEP = {
     "grip_speed": 1,
 }
 UNITS = {
+    "base_speed": "%",
     "left_th_steer": "%",
     "right_th_steer": "%",
     "node_advance_mm": "mm",
@@ -125,7 +131,7 @@ UNITS = {
     "grip_speed": "%",
 }
 PARAM_ORDER = [
-    "left_th_steer", "right_th_steer", "node_advance_mm",
+    "base_speed", "left_th_steer", "right_th_steer", "node_advance_mm",
     "turn_90_factor", "turn_180_factor", "grab_dist_cm", "grip_speed",
 ]
 
@@ -139,8 +145,7 @@ RIGHT_TH_DEEP = 41
 LEFT_TH_NODE = 20
 RIGHT_TH_NODE = 18
 
-# --- Stage 3 확정값: bits 추종 ---
-BASE_SPEED = 20
+# --- Stage 3 확정값: bits 추종 (base_speed 는 라이브 param 으로 승격, 위 참조) ---
 FOLLOW_GAIN = 12.0
 TURN_LIMIT = 35
 SLOW_SPEED = 12
@@ -619,7 +624,7 @@ def run():
             # (5) 계단식 조향 (걸친 만큼 틀기)
             err = line_error(l_lv, c_color == COL_BLACK, r_lv)
             turn = clamp(FOLLOW_GAIN * err, -TURN_LIMIT, TURN_LIMIT)
-            base = SLOW_SPEED if nbits in SLOW_ON else BASE_SPEED
+            base = SLOW_SPEED if nbits in SLOW_ON else snap["base_speed"]
             left_speed = clamp(base - turn, -100, 100)
             right_speed = clamp(base + turn, -100, 100)
             hw.drive(left_speed, right_speed)

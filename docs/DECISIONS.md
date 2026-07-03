@@ -37,6 +37,11 @@
 | `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구 | reflect |
 | `PAUSE` / `RESUME` | 대시보드/robotctl 일시정지 토글 | source |
 | `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | source |
+| `NODE_CHOICE` | `run_maze.py`(완주 통합): 분기점(옵션 2개 이상)에서 우>좌>직 우선순위로 선택. `exclude`/`returning` 이 있으면 왔던 길 제외 | bits, color, has_left/right/straight, exclude, returning, choice |
+| `NODE_CURVE` | `run_maze.py`: 옵션이 1개뿐인 강제 이동(커브) — last_turn/returning 기억은 갱신하지 않음 | bits, color |
+| `DEAD_END` | `run_maze.py`: 000(선/색 없음) 또는 전진 후에도 나갈 곳 없음 → 유턴 복귀 | bits, color |
+| `VISIT_NODE` | `run_maze.py`: 파랑(방문 노드) 재감지 → 즉시 유턴, returning 세팅 | color, visits |
+| `GRAB` | `run_maze.py`: 초음파 근접(grab_dist_cm 이내) → 그리퍼 1회 파지 | grab_dist_cm, grip_speed |
 
 > **(2026-07-02) 공식 Stage 3 는 bits 트랙(`stages/stage3v2_linetrace_branch.py`)이다.** 좌/중/우
 > 3센서 raw 차 기반 PD 로 추종하고, 분기 확정은 `total`/시간 지속이 아니라 **연속 확정 횟수

@@ -194,6 +194,53 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — run_maze.py v4 로직 반영 + 라이브 튜닝/대시보드 인프라 연결 (Agent: claude)
+- **요청**: 사용자가 완주 로직 v4(우>좌>직 우선순위 + 직전 분기 기억 + 매 노드 재판정)
+  본문을 제공, `run_maze.py` 내용을 그걸로 교체하고 다른 스테이지처럼 실시간 대시보드가
+  되게 해달라고 요청. 원문은 순수 판단 로직 + `time.sleep` 폴링뿐이라 SharedParams/
+  Telemetry/DecisionLog/TuningServer 가 전혀 연결돼 있지 않았다.
+- **반영(`stages/run_maze.py` 전체 재작성)**:
+  - 판단층은 원문 로직 그대로(steer_level/line_error/bits_node/choose_branch, 전부 인자로만
+    받는 순수 함수로 정리 — 기존엔 `bits_node` 가 전역 상수를 직접 참조해 테스트에서 params
+    영향을 못 봤다).
+  - 회전은 새로 안 짜고 **`lib/decide_turn.decide_turn` + `lib/turns.pivot`(Stage 2 확정
+    코드) 재사용**, 직진 전진은 `stage3v2_linetrace_branch.py` 의 `advance_straight` 패턴을
+    그대로 가져왔다(엔코더 폴링, stop/pause 즉시 반응) — 둘 다 새 로직 아님, 기존 검증된
+    코드 재사용.
+  - 라이브 params 는 **원문이 ★/⚠ 로 "실기 보정 필요"라고 직접 표시한 7개만**: 
+    `left_th_steer/right_th_steer`(⚠ 흔들리면 66~67로), `node_advance_mm`/`turn_90_factor`/
+    `turn_180_factor`/`grab_dist_cm`/`grip_speed`(★). 나머지(깊은 임계값·노드 임계값·
+    follow_gain·turn_limit·confirm/debounce ms 등, 원문이 "Stage 2/3 확정값"이라 표시한 것)
+    는 파일 상단 config 상수로 고정 — LIVE_TUNING.md "그 단계가 실제로 만지는 것만" 원칙과
+    stage3v2 의 "정확히 6개" 선례를 따랐다(7개는 그 선례보다 하나 많지만 원문이 명시한
+    ★/⚠ 항목 수와 정확히 일치).
+  - reason_code 신규 5종(`NODE_CHOICE`/`NODE_CURVE`/`DEAD_END`/`VISIT_NODE`/`GRAB`) —
+    `docs/DECISIONS.md` 카탈로그에 반영. `TURN_LEFT`/`TURN_RIGHT`/`UTURN`/`COLOR_READ`/
+    `REFLECT_READ`/`NODE_IS_GOAL`/`NODE_IS_START`/`PAUSE`/`RESUME`/`EMERGENCY_STOP` 은
+    기존 카탈로그 재사용(신규 추가 없음).
+  - `do read_color`/`do read_reflect` 액션 추가(bench_toggle 류 비차단 큐잉 패턴) — 출발
+    대기/paused 중 임계값 캘리브레이션용. 자동주행(자율 탐색) 자체는 별도 do 트리거 없이
+    시작~도착까지 자동.
+- **`lib/hardware.py` 추가만(기존 메서드/`__init__` 불변)**: `read_center_color_value()`
+  (모드 전환 없는 상시 컬러 판독 — run_maze 는 중앙센서를 계속 컬러모드로만 씀),
+  `grip_open`/`grip_close`(그리퍼 outC, Stage 3 지연오픈 패턴), `read_distance_cm()`
+  (초음파 in4, 지연오픈). Stage 1~4 코드가 쓰는 기존 메서드는 그대로.
+- **신규 테스트**: `tests/test_run_maze_logic.py` — steer_level/line_error/bits_node/
+  choose_branch/clamp 판단 9종 + advance_straight(가짜 hw, 도달/조기정지/pause) +
+  `_run_turn`(가짜 hw, TURN_LEFT/RIGHT 로깅) + params 안전 메타(7개) = 9개 테스트.
+- **PC 검증**: `py -3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py` 전부 통과,
+  신규 테스트 9개 통과, 기존 stage1/stage2/stage3v2/stage4d 테스트 회귀 통과. **주의**:
+  `test_stage3_logic.py` 는 이번 변경과 무관하게 이 Windows PC 환경에 `curses` 모듈이 없어
+  `tools/dashboard.py` import 단계에서 실패한다(사전부터 있던 환경 제약 — dashboard 는
+  브릭이 아니라 노트북에서 돌리는 도구라 실행 자체엔 영향 없음, 원인 조사/수정은 이 작업
+  범위 밖).
+- **실기 미검증**: 그리퍼/초음파/상시 컬러모드 조합, ★ 표시 7개 값 전부 브릭에서 처음부터
+  다시 확인해야 한다. 특히 `grip_speed` 부호(조립 방향)와 `left/right_th_steer` 는 원문이
+  이미 "다를 수 있다"고 명시한 값.
+- **다음**: 브릭 배포 후 SSH 터널(`ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local`) +
+  `python3 stages/run_maze.py` + 노트북 `tools/dashboard.py` 로 노란 출발 지점부터 실기
+  확인. 결과(성공/실패, 조정한 값)를 이 파일에 기록.
+
 ### 2026-07-03 — 추가 실행 파일 커밋/푸시 처리 (Agent: codex)
 - **사용자 요청**: 현재 추가된 파일까지 커밋·푸시.
 - **반영 파일**: `stages/run_maze.py`, `stages/stage4_color.py`.

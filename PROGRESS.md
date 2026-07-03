@@ -5,11 +5,11 @@
 
 ## 현재 단계
 
-**Stage 3 — 🟢 실기 Done(2026-07-02, 사용자 확인). `stage3v2_linetrace_branch.py`(bits+PD
-라인추종 + 분기 탱크회전)가 공식 Stage 3 구현체. 좌/우 분기 각각 여러 번 재현 성공, 흔들림
-오회전 없음(아래 상태판/로그 참조).**
+**Stage 4 — 🟢 실기 Done(2026-07-03, 사용자 확인). `stage4_clolor_reflected.py`가 보라/빨강
+색상 노드 판정 + 자동 180도 회전을 수행한다. 보라 후보 반사광/RGB 비율 튜닝값은 브릭에서
+`robotctl save` 완료했고 로컬 `config/stage4_clolor_reflected.json`에도 미러링했다.**
 (Stage 1 은 2026-06-30, Stage 2 는 2026-06-30 사용자 판단으로 실기 Done 처리.)
-**다음 단계는 Stage 4(색상코드 노드 판정) 착수 가능. Stage 4~7 은 이 stage3v2 트랙
+**다음 단계는 Stage 5(통합: 라인트레이싱 + 노드에서 분기 회전) 착수 가능. Stage 5~7 은 이 stage3v2/4 트랙
 (bits+PD 라인추종+탱크 회전)을 기반으로 응용해 구현한다.**
 
 ## 단계 상태판
@@ -20,7 +20,7 @@
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
-| Stage 4 색상코드 노드 판정 | 🟡 진행 중 | 2026-07-03 후보 D 관문(`stages/stage4d_mode_interleave.py`, `do bench_toggle`) 코드 구현·PC 검증 완료. `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. **실기 검증 필요** |
+| Stage 4 색상코드 노드 판정 | 🟢 실기 Done | **2026-07-03 사용자 확인.** `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. 브릭 `robotctl save` 완료, 로컬 `config/stage4_clolor_reflected.json` 미러링 |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
@@ -193,6 +193,38 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-03 — Stage 4 실기 Done 확정값 저장 (Agent: codex)
+- **사용자 확인**: 아래 저장값으로 Stage 4 를 Done 처리. 브릭에서
+  `status: save: ok saved on robot: /home/robot/ev3test/config/stage4_clolor_reflected.json` 확인.
+- **브릭 config 회수**: `scp robot@ev3dev.local:/home/robot/ev3test/config/stage4_clolor_reflected.json ...`
+  를 시도했으나 현재 PC에서 `ev3dev.local` 이름 해석 실패로 직접 회수는 못 했다. 사용자가 붙여준
+  `robotctl get/save` 출력값을 기준으로 로컬 `config/stage4_clolor_reflected.json` 을 미러링했다
+  (`kp/base_speed/turn_speed` 는 Stage 4 코드의 현재 기본값 0.22/17/6 유지).
+- **Done 판단**: 보라 후보 반사광을 감지하고, RGB 비율을 아래처럼 넓힌 값으로 보라색 판정이 되는
+  것으로 사용자 확인. Stage 4 색상코드 노드 판정 + 자동 U턴은 실기 Done.
+
+| param | 확정값 | 메모 |
+|---|---:|---|
+| `kp` | 0.22 | Stage 3 v2 기반 주행값 |
+| `base_speed` | 17 | Stage 3 v2 기반 주행값 |
+| `turn_speed` | 6 | Stage 3 v2 기반 회전값 |
+| `turn_90_factor` | 0.66 | Stage 3 v2 기반 분기 회전값 |
+| `branch_confirm_count` | 2 | Stage 3 v2 기반 |
+| `branch_advance_mm` | 30 | Stage 3 v2 기반 |
+| `marker_candidate_min` | 21 | 보라 후보 반사광 하한 |
+| `marker_candidate_max` | 32 | 보라 후보 반사광 상한 |
+| `red_candidate_min` | 73 | 빨강 후보 반사광 하한(흰색 68과 분리) |
+| `red_candidate_max` | 86 | 빨강 후보 반사광 상한 |
+| `marker_stable_ms` | 0 | 후보 즉시 색/RGB 읽기 |
+| `marker_cooldown_ms` | 1000 | 중복 인식 방지 |
+| `marker_sample_count` | 3 | 색/RGB 샘플 수 |
+| `marker_sample_delay_ms` | 1 | 샘플 간 대기 |
+| `color_mode_settle_ms` | 10 | 모드 전환 settle |
+| `color_dummy_reads` | 1 | 전환 직후 더미 읽기 |
+| `purple_red_ratio_min` | 0.20 | 보라 RGB 판정 |
+| `purple_blue_ratio_min` | 0.23 | 보라 RGB 판정 |
+| `purple_green_ratio_max` | 0.42 | 보라 RGB 판정 |
 
 ### 2026-07-03 — Stage 4 reflected 보라+빨강 노드 판정으로 재구성 (Agent: codex)
 - **요청**: 갈색 의심/판별을 지우고, 보라색은 기존 반사광 의심값에서 RGB 직접 판정,

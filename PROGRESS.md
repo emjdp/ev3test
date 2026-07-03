@@ -20,7 +20,7 @@
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
-| Stage 4 색상코드 노드 판정 | ⬜ 시작 전 | |
+| Stage 4 색상코드 노드 판정 | 🟡 진행 중 | 2026-07-03 후보 D 관문(`stages/stage4d_mode_interleave.py`, `do bench_toggle`) 코드 구현·PC 검증 완료. **실기 bench go/no-go 판정 대기** — no-go 면 D 폐기 후 C 로. 후보 채택은 아직 미정 |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
@@ -59,7 +59,13 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       (각 명세 §7-0 공통)해 이 파일에 표로 기록 → 그 값으로 A(5대역 분리)/B(마커가 선 끝
       +threshold 위)/C(마커가 흑백 중간대) 성립 판정. D 는 추가로 `do bench_toggle`
       전환 벤치 go/no-go 관문을 먼저 통과해야 구현 착수 가능. 2026-07-03 중앙 반사광 센서
-      1차 단회 실측값은 아래 작업 로그에 기록(5회 반복+컬러값은 아직 필요).
+      1차 단회 실측값은 아래 작업 로그에 기록(5회 반복+컬러값은 아직 필요 —
+      `stage4d_mode_interleave.py` 의 `do read_reflect`/`do read_color` 로 측정 가능해짐).
+- [ ] **Stage 4-D 관문 실기 실행(코드는 준비됨, 2026-07-03 claude)**:
+      브릭에서 `python3 stages/stage4d_mode_interleave.py` → `robotctl do bench_toggle`.
+      §7-0b 절차 — `switch_settle_ms` 0 부터 +20 씩 올리며 색이 유효(0 없음)한 최소 settle
+      을 찾고, 그때 `BENCH_TOGGLE` 의 `max_ms > 80(BLIND_BUDGET_MS)` 면 **D 폐기 기록 후
+      C 로 전환**. go 면 2단계(교대 루프 본체) 구현 착수. 결과를 이 파일에 기록.
 - [ ] **Stage 3 v3 후보 위치(anchor) 보정 아이디어 보류** — 메모:
       [docs/specs/stage3v3_anchor_pivot_idea.md](docs/specs/stage3v3_anchor_pivot_idea.md).
       Stage 3 v2 Done 은 유지하되, v2 의 `turn_90_factor=0.66` 이
@@ -187,6 +193,35 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-03 — Stage 4-D 관문(bench_toggle) 구현, 실기 go/no-go 대기 (Agent: claude)
+- **요청**: 사용자 "stage4d 구현해줘". 명세([stage4d_mode_interleave.md](docs/specs/stage4d_mode_interleave.md))
+  §1/§10 상 D 는 **구현 전 `do bench_toggle` go/no-go 관문**이 있어, 이번 커밋은 관문
+  (1단계)까지만 구현했다 — 교대 루프 본체(SlotScheduler/SlotColorConfirmer/주행)는
+  **실기 bench 가 go 를 통과한 뒤에만** 착수한다(no-go 면 D 폐기, C 로).
+- **신규**: `stages/stage4d_mode_interleave.py` — 주행 없는 관문 스크립트.
+  - `do bench_toggle`: 반사광→컬러→반사광 왕복 `BENCH_K=20`회 실측 → avg/max ms +
+    무효색(0) 횟수 → `BENCH_TOGGLE` 이벤트(rule=GO/NO_GO). 판정은 순수 함수
+    `blind_budget_ok`(**max 기준** ≤ `BLIND_BUDGET_MS=80`, §7-0b) — 네트워크 thread 는
+    큐잉만 하고 제어 루프가 실행(비차단, stage3v2 pending 패턴).
+  - `do read_color`(직전 reflect + 색 1회 + slot_ms → `COLOR_READ`) /
+    `do read_reflect`(좌/중/우 → `REFLECT_READ`) — §7-0a 공통 선결 실측용.
+  - 라이브 params 는 관문이 만지는 2개만(`switch_settle_ms` 0..300 step20 /
+    `color_dummy_reads` 0..6). 나머지 4개(interleave_every_n 등)는 2단계 구현 시 추가
+    (죽은 손잡이 방지). telemetry: `slot_ms`/`bench_avg_ms`/`bench_max_ms`/`bench_go` 등.
+- **`lib/hardware.py` 추가만(기존 불변)**: `read_center_color(settle_s, dummy_reads)`
+  (컬러 모드 전환+settle+더미읽기) / `restore_reflect_mode(settle_s)` — stage4_color.md §2
+  의 B/C/D 공용 전환 함수. `bench_toggle`/`read_color_slot` 은 D 전용이라 스테이지 파일에
+  뒀다(hw 인자 경유 — 가짜 hw 로 PC 테스트 가능).
+- **문서**: DECISIONS.md 카탈로그에 `BENCH_TOGGLE`/`REFLECT_READ` 추가(+`COLOR_READ` 에
+  at_rest 사용처 주석). 명세 §10 체크리스트 갱신. `MODE_SWITCH_SLOW`/`INTERLEAVE_COLOR`
+  는 2단계(교대 루프) 몫이라 아직 카탈로그에 안 넣음.
+- **PC 검증(전부 통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  신규 `tests/test_stage4d_logic.py` 8건(budget 경계/왕복 카운트/zero_reads/조기정지/훅/
+  params 메타), 기존 stage1~3v2 테스트 회귀 통과. **실기 미검증 — bench 는 커널 드라이버
+  고유라 PC 재연 불가(명세 §9).**
+- **다음**: 위 TODO "Stage 4-D 관문 실기 실행" — bench 결과(avg/max/settle/zero_reads)를
+  이 파일에 기록하고 go/no-go 결정. go 면 2단계 착수, no-go 면 D 폐기 후 C 착수.
 
 ### 2026-07-03 — Stage 4 중앙 반사광 센서 1차 실측 기록 (Agent: codex)
 - **사용자 제공 실측값**: 중앙 반사광 센서로 색상별 raw 반사광을 측정해 기록. Stage 4

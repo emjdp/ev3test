@@ -204,11 +204,16 @@ def stage4d_loop():
 
 ## 10. 구현 체크리스트 (이어받는 사람/에이전트용 TODO)
 
-- [ ] §7-0a 공통 선결 실측(색코드 포함).
-- [ ] `lib/hardware.py` 컬러 전환 3함수(B/C/D 공용 — 이미 있으면 재사용) +
-      `bench_toggle`/`read_color_slot`.
+- [ ] §7-0a 공통 선결 실측(색코드 포함). (2026-07-03: 중앙 반사광 1차 단회 실측만 있음 —
+      PROGRESS 표. 5회 반복+컬러값 필요, `do read_reflect`/`do read_color` 로 측정 가능해짐)
+- [x] `lib/hardware.py` 컬러 전환 3함수(B/C/D 공용 — `read_center_reflect` 기존 +
+      `read_center_color`/`restore_reflect_mode` 추가) + `bench_toggle`/`read_color_slot`
+      (D 전용이라 `stages/stage4d_mode_interleave.py` 구동층에 둠, hw 인자 경유 — 2026-07-03 claude).
 - [ ] **`do bench_toggle` 만 먼저 구현·실기 실행 → go/no-go 판정, PROGRESS 기록.**
       no-go 면 여기서 종료(아래 항목 착수 금지, C 로).
+      (2026-07-03: **코드 구현 완료** — `stages/stage4d_mode_interleave.py` 관문 스크립트,
+      `blind_budget_ok` 순수 판정(max 기준) + `BENCH_TOGGLE` GO/NO_GO 로깅 +
+      `do read_color`/`do read_reflect` 포함. **실기 실행·판정은 미완** — 체크는 실기 후에.)
 - [ ] 판단층 `SlotScheduler`/`SlotColorConfirmer` + 단위 테스트.
 - [ ] `stages/stage4d_mode_interleave.py` 교대 루프 + 회전 중 슬롯 억제.
 - [ ] 라이브 params 6개 + LIMITS + MAX_STEP, DECISIONS.md 카탈로그 갱신.

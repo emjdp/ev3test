@@ -28,7 +28,11 @@ while [[ -h "${SOURCE}" ]]; do
 done
 
 SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [[ -n "${EV3TEST_REPO:-}" ]]; then
+  REPO_ROOT="$(cd "${EV3TEST_REPO}" && pwd)"
+else
+  REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
 
 ROBOT_HOST="ev3"
 REMOTE_DIR="~/ev3test"
@@ -53,8 +57,9 @@ Examples:
   ev3sess stage4v2_color_follow
   ev3sess stages/stage4_color.py --terminal tmux
 
-Alias:
-  alias ev3sess='/home/emjdp/dev/ev3test/tools/ev3_session.sh --terminal tmux'
+Branch-safe launcher:
+  tools/install_ev3sess.sh 를 한 번 실행하면 ~/.local/bin/ev3sess 로 설치된다.
+  이후 다른 브랜치에 이 파일이 없어도 ev3sess run_maze 처럼 실행할 수 있다.
 
 Options:
   -s, --stage PATH_OR_NAME   실행할 stage 파일. 기본: stages/stage4d_mode_interleave.py
@@ -287,12 +292,36 @@ run_or_print() {
 }
 
 upload_files() {
+  local stage_files=("${REPO_ROOT}/stages/"*.py)
+  local lib_files=("${REPO_ROOT}/lib/"*.py)
+  local tool_files=("${REPO_ROOT}/tools/"*.py)
+  local tool_shell_files=("${REPO_ROOT}/tools/"*.sh)
+  local config_files=("${REPO_ROOT}/config/"*.json)
+
+  shopt -s nullglob
+  stage_files=("${REPO_ROOT}/stages/"*.py)
+  lib_files=("${REPO_ROOT}/lib/"*.py)
+  tool_files=("${REPO_ROOT}/tools/"*.py)
+  tool_shell_files=("${REPO_ROOT}/tools/"*.sh)
+  config_files=("${REPO_ROOT}/config/"*.json)
+  shopt -u nullglob
+
+  [[ "${#stage_files[@]}" -gt 0 ]] || die "업로드할 stages/*.py 파일이 없습니다: ${REPO_ROOT}/stages"
+  [[ "${#lib_files[@]}" -gt 0 ]] || die "업로드할 lib/*.py 파일이 없습니다: ${REPO_ROOT}/lib"
+  [[ "${#tool_files[@]}" -gt 0 ]] || die "업로드할 tools/*.py 파일이 없습니다: ${REPO_ROOT}/tools"
+
   echo "[ev3-session] 업로드 대상: ${ROBOT_HOST}:${REMOTE_BASE}"
   run_or_print ssh "${ROBOT_HOST}" "mkdir -p ${REMOTE_BASE}/stages ${REMOTE_BASE}/lib ${REMOTE_BASE}/tools ${REMOTE_BASE}/config"
-  run_or_print scp "${REPO_ROOT}/stages/"*.py "${ROBOT_HOST}:${REMOTE_BASE}/stages/"
-  run_or_print scp "${REPO_ROOT}/lib/"*.py "${ROBOT_HOST}:${REMOTE_BASE}/lib/"
-  run_or_print scp "${REPO_ROOT}/tools/"*.py "${REPO_ROOT}/tools/"*.sh "${ROBOT_HOST}:${REMOTE_BASE}/tools/"
-  run_or_print scp "${REPO_ROOT}/config/"*.json "${ROBOT_HOST}:${REMOTE_BASE}/config/"
+  run_or_print scp "${stage_files[@]}" "${ROBOT_HOST}:${REMOTE_BASE}/stages/"
+  run_or_print scp "${lib_files[@]}" "${ROBOT_HOST}:${REMOTE_BASE}/lib/"
+  if [[ "${#tool_shell_files[@]}" -gt 0 ]]; then
+    run_or_print scp "${tool_files[@]}" "${tool_shell_files[@]}" "${ROBOT_HOST}:${REMOTE_BASE}/tools/"
+  else
+    run_or_print scp "${tool_files[@]}" "${ROBOT_HOST}:${REMOTE_BASE}/tools/"
+  fi
+  if [[ "${#config_files[@]}" -gt 0 ]]; then
+    run_or_print scp "${config_files[@]}" "${ROBOT_HOST}:${REMOTE_BASE}/config/"
+  fi
 }
 
 launch_terminal() {

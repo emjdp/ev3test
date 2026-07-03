@@ -205,6 +205,25 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-03 — ev3sess 전역 런처 설치: 스크립트 없는 브랜치에서도 실행 (Agent: codex)
+- **요청**: 다른 브랜치로 전환하면 `tools/ev3_session.sh` 파일이 없어질 수 있으니, 그런
+  브랜치에서도 같은 명령을 계속 쓸 수 있게 개선.
+- **신규**: `tools/install_ev3sess.sh`.
+  - `~/.local/bin/ev3sess` 전역 런처 설치.
+  - `~/.local/share/ev3test/ev3_session.sh` 에 현재 세션 스크립트 캐시본 저장.
+  - 실행 시 현재 repo(`/home/emjdp/dev/ev3test`)에 `tools/ev3_session.sh` 가 있으면 그것을
+    우선 사용하고, 없으면 캐시본을 `EV3TEST_REPO=/home/emjdp/dev/ev3test` 로 실행.
+- **수정**: `tools/ev3_session.sh`.
+  - `EV3TEST_REPO` 환경변수로 repo root 를 지정할 수 있게 함(캐시본 실행용).
+  - 업로드 glob 을 nullglob 배열로 처리해, 스크립트 없는 브랜치처럼 `tools/*.sh` 가 없어도
+    `scp` 가 깨지지 않게 함.
+  - help 문구를 branch-safe 런처 설치 기준으로 갱신.
+- **로컬 설치 완료**: `tools/install_ev3sess.sh` 실행으로 `/home/emjdp/.local/bin/ev3sess`
+  설치 완료.
+- **검증**: `bash -n`, 현재 repo 기준 `ev3sess --dry-run --terminal none run_maze`, 그리고
+  `tools/ev3_session.sh` 가 없는 임시 repo 를 `EV3TEST_REPO` 로 지정한 fallback dry-run 통과.
+  실제 브릭 실행은 실기 때 확인 필요.
+
 ### 2026-07-03 — ev3_session 어디서든 실행 + stage 위치인자 지원 (Agent: codex)
 - **요청**: `/home/emjdp/dev/ev3test` 디렉토리에 들어가지 않고도 alias/PATH 단축어로 실행하고,
   명령어 뒤에 `run_maze` 같은 `stages/` 파일명만 입력하면 자동 업로드+실행되게 개선.

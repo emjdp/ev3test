@@ -5,18 +5,20 @@
 Run on EV3:
     python3 stages/stage4_clolor_reflected.py
 
-This stage keeps the Stage 3 v2 line-tracing/branch behavior and adds a quick
-center-reflect gate for the brown node marker:
+This stage keeps the Stage 3 v2 line-tracing/branch behavior and adds quick
+center-reflect gates for purple/red node markers:
 
-  - brown reflect was measured near 32
-  - candidate reflect triggers a color-code read immediately
+  - purple reflect was measured near 26
+  - red reflect was measured near 79; white was measured near 68
+  - candidate reflect triggers a color/RGB-RAW read immediately
 
 Reflect is only used as a candidate gate. Once the center sensor enters that
-gate, the robot stops, switches the center sensor to color mode, reads the
+gate, the robot stops, switches the center sensor to color/RGB-RAW mode, reads the
 marker, restores reflected-light mode, and then continues line tracing.
 
-The EV3 color code for brown is stable in this setup, so COLOR_BROWN(7) alone
-is treated as the node marker. RGB-RAW values are not used for node judgment.
+Purple has no stable EV3 color code, so it is confirmed by RGB-RAW ratios.
+Red is confirmed by the EV3 color code COLOR_RED(5). Brown is no longer a
+node marker in this stage.
 
 Python 3.5 compatible: no f-strings.
 """
@@ -62,7 +64,7 @@ from stages.stage3v2_linetrace_branch import (                    # noqa: E402
 
 
 COLOR_NONE = 0
-COLOR_BROWN = 7
+COLOR_RED = 5
 
 # Seed Stage 4 with the latest committed Stage 3 v2 tuned values.
 INITIAL_PARAMS = {
@@ -72,8 +74,10 @@ INITIAL_PARAMS = {
     "turn_90_factor": 0.66,
     "branch_confirm_count": 2,
     "branch_advance_mm": 30,
-    "marker_candidate_min": 24,
-    "marker_candidate_max": 35,
+    "marker_candidate_min": 23,
+    "marker_candidate_max": 30,
+    "red_candidate_min": 74,
+    "red_candidate_max": 86,
     "marker_stable_ms": 0,
     "marker_cooldown_ms": 1000,
     "marker_sample_count": 3,
@@ -83,8 +87,6 @@ INITIAL_PARAMS = {
     "purple_red_ratio_min": 0.25,
     "purple_blue_ratio_min": 0.30,
     "purple_green_ratio_max": 0.30,
-    "brown_red_ratio_min": 0.42,
-    "brown_blue_ratio_max": 0.25,
 }
 
 PARAM_LIMITS = {
@@ -96,6 +98,8 @@ PARAM_LIMITS = {
     "branch_advance_mm": (0, 120),
     "marker_candidate_min": (0, 100),
     "marker_candidate_max": (0, 100),
+    "red_candidate_min": (0, 100),
+    "red_candidate_max": (0, 100),
     "marker_stable_ms": (0, 1000),
     "marker_cooldown_ms": (0, 5000),
     "marker_sample_count": (1, 30),
@@ -105,8 +109,6 @@ PARAM_LIMITS = {
     "purple_red_ratio_min": (0.0, 1.0),
     "purple_blue_ratio_min": (0.0, 1.0),
     "purple_green_ratio_max": (0.0, 1.0),
-    "brown_red_ratio_min": (0.0, 1.0),
-    "brown_blue_ratio_max": (0.0, 1.0),
 }
 
 MAX_STEP = {
@@ -118,6 +120,8 @@ MAX_STEP = {
     "branch_advance_mm": 10,
     "marker_candidate_min": 5,
     "marker_candidate_max": 5,
+    "red_candidate_min": 5,
+    "red_candidate_max": 5,
     "marker_stable_ms": 10,
     "marker_cooldown_ms": 200,
     "marker_sample_count": 2,
@@ -127,8 +131,6 @@ MAX_STEP = {
     "purple_red_ratio_min": 0.05,
     "purple_blue_ratio_min": 0.05,
     "purple_green_ratio_max": 0.05,
-    "brown_red_ratio_min": 0.05,
-    "brown_blue_ratio_max": 0.05,
 }
 
 UI_STEP = {
@@ -140,6 +142,8 @@ UI_STEP = {
     "branch_advance_mm": 10,
     "marker_candidate_min": 1,
     "marker_candidate_max": 1,
+    "red_candidate_min": 1,
+    "red_candidate_max": 1,
     "marker_stable_ms": 5,
     "marker_cooldown_ms": 50,
     "marker_sample_count": 1,
@@ -149,8 +153,6 @@ UI_STEP = {
     "purple_red_ratio_min": 0.01,
     "purple_blue_ratio_min": 0.01,
     "purple_green_ratio_max": 0.01,
-    "brown_red_ratio_min": 0.01,
-    "brown_blue_ratio_max": 0.01,
 }
 
 UNITS = {
@@ -160,6 +162,8 @@ UNITS = {
     "branch_advance_mm": "mm",
     "marker_candidate_min": "%",
     "marker_candidate_max": "%",
+    "red_candidate_min": "%",
+    "red_candidate_max": "%",
     "marker_stable_ms": "ms",
     "marker_cooldown_ms": "ms",
     "marker_sample_delay_ms": "ms",
@@ -167,18 +171,16 @@ UNITS = {
     "purple_red_ratio_min": "x",
     "purple_blue_ratio_min": "x",
     "purple_green_ratio_max": "x",
-    "brown_red_ratio_min": "x",
-    "brown_blue_ratio_max": "x",
 }
 
 PARAM_ORDER = [
     "kp", "base_speed", "turn_speed", "turn_90_factor",
     "branch_confirm_count", "branch_advance_mm",
-    "marker_candidate_min", "marker_candidate_max", "marker_stable_ms",
+    "marker_candidate_min", "marker_candidate_max",
+    "red_candidate_min", "red_candidate_max", "marker_stable_ms",
     "marker_cooldown_ms", "marker_sample_count", "marker_sample_delay_ms",
     "color_mode_settle_ms", "color_dummy_reads",
     "purple_red_ratio_min", "purple_blue_ratio_min", "purple_green_ratio_max",
-    "brown_red_ratio_min", "brown_blue_ratio_max",
 ]
 
 SAVE_PATH = os.path.join(_ROOT, "config", "stage4_clolor_reflected.json")
@@ -193,43 +195,100 @@ ACTIONS = [
 ]
 
 
-def marker_candidate(center_reflect, params):
-    lo = params["marker_candidate_min"]
-    hi = params["marker_candidate_max"]
+def _in_range(value, lo, hi):
     if lo >= hi:
         return False
-    return center_reflect >= lo and center_reflect < hi
+    return value >= lo and value < hi
+
+
+def marker_candidate_kind(center_reflect, params):
+    lo = params["marker_candidate_min"]
+    hi = params["marker_candidate_max"]
+    if _in_range(center_reflect, lo, hi):
+        return "purple"
+
+    lo = params["red_candidate_min"]
+    hi = params["red_candidate_max"]
+    if _in_range(center_reflect, lo, hi):
+        return "red"
+
+    return None
+
+
+def marker_candidate(center_reflect, params):
+    return marker_candidate_kind(center_reflect, params) is not None
 
 
 class MarkerCandidateTracker(object):
     def __init__(self):
-        self.confirmed_inside = False
+        self.confirmed_kind = None
 
     def reset(self):
-        self.confirmed_inside = False
+        self.confirmed_kind = None
 
     def push(self, center_reflect, t_ms, params):
-        if not marker_candidate(center_reflect, params):
+        kind = marker_candidate_kind(center_reflect, params)
+        if kind is None:
             self.reset()
-            return False, 0
+            return None, 0
 
-        if self.confirmed_inside:
-            return False, 0
+        if self.confirmed_kind == kind:
+            return None, 0
 
-        self.confirmed_inside = True
-        return True, 0
+        self.confirmed_kind = kind
+        return kind, 0
 
 
 def classify_marker_by_color_code(color_code):
-    if color_code == COLOR_BROWN:
-        return "brown"
+    if color_code == COLOR_RED:
+        return "red"
     return None
 
 
-def classify_marker(color_code):
-    color_kind = classify_marker_by_color_code(color_code)
-    if color_kind == "brown":
-        return "brown", "color_code_brown"
+def rgb_ratios(rgb):
+    if rgb is None:
+        return None
+    total = float(rgb[0] + rgb[1] + rgb[2])
+    if total <= 0:
+        return None
+    return (rgb[0] / total, rgb[1] / total, rgb[2] / total)
+
+
+def classify_purple_by_rgb(rgb, params):
+    ratios = rgb_ratios(rgb)
+    if ratios is None:
+        return None
+
+    red, green, blue = ratios
+    if (red >= params["purple_red_ratio_min"] and
+            blue >= params["purple_blue_ratio_min"] and
+            green <= params["purple_green_ratio_max"]):
+        return "purple"
+
+    return None
+
+
+def mean_rgb(values):
+    if not values:
+        return None
+    count = float(len(values))
+    return (sum([value[0] for value in values]) / count,
+            sum([value[1] for value in values]) / count,
+            sum([value[2] for value in values]) / count)
+
+
+def classify_marker(candidate_kind, color_code, rgb, params):
+    if candidate_kind == "red":
+        color_kind = classify_marker_by_color_code(color_code)
+        if color_kind == "red":
+            return "red", "color_code_red"
+        return None, "unknown"
+
+    if candidate_kind == "purple":
+        rgb_kind = classify_purple_by_rgb(rgb, params)
+        if rgb_kind == "purple":
+            return "purple", "rgb_raw_purple"
+        return None, "unknown"
 
     return None, "unknown"
 
@@ -268,21 +327,25 @@ def run_marker_uturn(hw, params, log, tele, should_stop, should_pause,
                      started, result, reflect, bits_str):
     log.log("MARKER_UTURN", "COLOR_RECOGNIZED",
             marker=result["marker"], marker_source=result["source"],
+            candidate_kind=result["candidate_kind"],
             reflect=list(reflect), bits=bits_str,
             color_code=result["color_code"],
-            center_reflect_avg=result["center_reflect_avg"])
+            center_reflect_avg=result["center_reflect_avg"],
+            rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
     _publish(tele, params, started, mode="marker_uturn",
              marker=result["marker"], marker_source=result["source"],
+             candidate_kind=result["candidate_kind"],
              reflect=list(reflect), bits=bits_str,
              color_code=result["color_code"],
-             center_reflect_avg=result["center_reflect_avg"])
+             center_reflect_avg=result["center_reflect_avg"],
+             rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
     if should_stop():
         return 0.0
     return _run_turn(_MuteTurnBeepHw(hw), "uturn", params, log, tele,
                      should_stop, should_pause, started)
 
 
-def read_marker_at_rest(hw, params, stop_flag, center_reflect_hint=None):
+def read_marker_at_rest(hw, params, stop_flag, center_reflect_hint=None, candidate_kind=None):
     sample_count = int(params["marker_sample_count"])
     sample_delay = params["marker_sample_delay_ms"] / 1000.0
 
@@ -293,26 +356,45 @@ def read_marker_at_rest(hw, params, stop_flag, center_reflect_hint=None):
         reflect_avg = float(center_reflect_hint)
         reflect_samples = 1
 
+    if candidate_kind is None:
+        candidate_kind = marker_candidate_kind(reflect_avg, params)
+
     color_reads = []
+    rgb_reads = []
     settle_s = params["color_mode_settle_ms"] / 1000.0
     dummy_reads = int(params["color_dummy_reads"])
-    for _ in range(sample_count):
-        if stop_flag["on"]:
-            break
-        color_reads.append(hw.read_center_color(settle_s, dummy_reads))
-        if sample_delay > 0:
-            time.sleep(sample_delay)
-    hw.restore_reflect_mode(settle_s)
+
+    if candidate_kind == "red":
+        for _ in range(sample_count):
+            if stop_flag["on"]:
+                break
+            color_reads.append(hw.read_center_color(settle_s, dummy_reads))
+            if sample_delay > 0:
+                time.sleep(sample_delay)
+        hw.restore_reflect_mode(settle_s)
+    elif candidate_kind == "purple":
+        for _ in range(sample_count):
+            if stop_flag["on"]:
+                break
+            rgb_reads.append(hw.read_center_rgb(settle_s, dummy_reads))
+            if sample_delay > 0:
+                time.sleep(sample_delay)
+        hw.restore_reflect_mode(settle_s)
 
     color_code = majority(color_reads) if color_reads else COLOR_NONE
-    marker, source = classify_marker(color_code)
+    rgb = mean_rgb(rgb_reads)
+    marker, source = classify_marker(candidate_kind, color_code, rgb, params)
     return {
         "marker": marker,
         "source": source,
+        "candidate_kind": candidate_kind,
         "center_reflect_avg": reflect_avg,
         "color_code": color_code,
+        "rgb": rgb,
+        "rgb_ratio": rgb_ratios(rgb),
         "reflect_samples": reflect_samples,
         "color_samples": len(color_reads),
+        "rgb_samples": len(rgb_reads),
     }
 
 
@@ -327,8 +409,11 @@ def _publish(tele, params, started, **overrides):
         "bits": "000",
         "marker": None,
         "marker_source": None,
+        "candidate_kind": None,
         "center_reflect_avg": None,
         "color_code": None,
+        "rgb": None,
+        "rgb_ratio": None,
         "marker_elapsed_ms": 0,
         "branch_seen": 0,
     }
@@ -397,7 +482,7 @@ def run():
     last_marker_ms = -999999
     last_follow_log = started - REASON_THROTTLE_S
 
-    print("stage4 color ready (Stage 3 v2 line trace + brown marker). "
+    print("stage4 color ready (Stage 3 v2 line trace + purple/red markers). "
           "stop via robotctl stop or Ctrl-C.")
 
     try:
@@ -426,7 +511,7 @@ def run():
                 pending["beep"] = False
 
             if beep_test:
-                beep_marker(hw, "brown")
+                beep_marker(hw, "purple")
                 _publish(tele, params, started, mode="beep_test")
                 continue
 
@@ -439,12 +524,16 @@ def run():
                     beep_marker(hw, result["marker"])
                 log.log("COLOR_READ", "MANUAL", marker=result["marker"],
                         marker_source=result["source"],
+                        candidate_kind=result["candidate_kind"],
                         center_reflect_avg=result["center_reflect_avg"],
-                        color_code=result["color_code"])
+                        color_code=result["color_code"],
+                        rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
                 _publish(tele, params, started, mode="manual_marker",
                          marker=result["marker"], marker_source=result["source"],
+                         candidate_kind=result["candidate_kind"],
                          center_reflect_avg=result["center_reflect_avg"],
-                         color_code=result["color_code"])
+                         color_code=result["color_code"],
+                         rgb=result["rgb"], rgb_ratio=result["rgb_ratio"])
                 pd.reset()
                 marker_tracker.reset()
                 continue
@@ -465,21 +554,27 @@ def run():
             side = branch_side(bits)
             t_ms = now_ms()
 
-            marker_seen, marker_elapsed = marker_tracker.push(raw[1], t_ms, snap)
+            candidate_kind, marker_elapsed = marker_tracker.push(raw[1], t_ms, snap)
             in_marker_cooldown = (t_ms - last_marker_ms) < snap["marker_cooldown_ms"]
-            if marker_seen and not in_marker_cooldown:
+            if candidate_kind is not None and not in_marker_cooldown:
                 hw.stop()
-                result = read_marker_at_rest(hw, snap, stop_flag, raw[1])
+                result = read_marker_at_rest(hw, snap, stop_flag, raw[1], candidate_kind)
                 log.log("COLOR_READ", "AUTO_REFLECT_GATE", marker=result["marker"],
                         marker_source=result["source"], reflect=list(raw),
+                        candidate_kind=result["candidate_kind"],
                         center_reflect_avg=result["center_reflect_avg"],
                         color_code=result["color_code"],
+                        rgb=result["rgb"],
+                        rgb_ratio=result["rgb_ratio"],
                         marker_elapsed_ms=marker_elapsed)
                 _publish(tele, params, started, mode="marker",
                          reflect=list(raw), bits=bits_str,
                          marker=result["marker"], marker_source=result["source"],
+                         candidate_kind=result["candidate_kind"],
                          center_reflect_avg=result["center_reflect_avg"],
                          color_code=result["color_code"],
+                         rgb=result["rgb"],
+                         rgb_ratio=result["rgb_ratio"],
                          marker_elapsed_ms=marker_elapsed,
                          branch_seen=branch_seen)
                 if result["marker"] is not None:

@@ -20,7 +20,7 @@
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
-| Stage 4 색상코드 노드 판정 | 🟡 진행 중 | 2026-07-03 후보 D 관문(`stages/stage4d_mode_interleave.py`, `do bench_toggle`) 코드 구현·PC 검증 완료. `stages/stage4_clolor_reflected.py` 는 의심 반사광 즉시 색상센서 전환 후 **EV3 COLOR_BROWN(7)만** 노드로 판단해 자동 180도 회전. **실기 검증 필요** |
+| Stage 4 색상코드 노드 판정 | 🟡 진행 중 | 2026-07-03 후보 D 관문(`stages/stage4d_mode_interleave.py`, `do bench_toggle`) 코드 구현·PC 검증 완료. `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. **실기 검증 필요** |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
@@ -193,6 +193,23 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-03 — Stage 4 reflected 보라+빨강 노드 판정으로 재구성 (Agent: codex)
+- **요청**: 갈색 의심/판별을 지우고, 보라색은 기존 반사광 의심값에서 RGB 직접 판정,
+  빨간색은 흰색(68)과 겹치지 않는 반사광 후보 범위를 새로 둔 뒤 EV3 색상센서 RED 값으로 확정.
+- **반영**: `stages/stage4_clolor_reflected.py` 의 후보 판정을 `candidate_kind` 로 분리했다.
+  - 보라: `marker_candidate_min=23`, `marker_candidate_max=30`(기본값, 23<=reflect<30)에서 즉시 정지 후
+    RGB-RAW 평균의 비율(`purple_red_ratio_min`, `purple_blue_ratio_min`, `purple_green_ratio_max`)로 확정.
+  - 빨강: `red_candidate_min=74`, `red_candidate_max=86`(기본값, 74<=reflect<86)에서 즉시 정지 후
+    EV3 color code majority 가 `COLOR_RED(5)` 일 때 확정. 흰색 68/노랑 70과 기본값상 분리.
+  - 갈색: `COLOR_BROWN`/brown RGB ratio 판단 및 관련 live params 제거. 브릭에 예전 저장 params 가 있으면
+    stage 시작 시 기본값으로 돌아갈 수 있으므로 새 기본값으로 다시 실기 확인 후 필요하면 `robotctl save`.
+- **판단 기록**: `COLOR_READ`/`MARKER_UTURN` 에 `candidate_kind`, `rgb`, `rgb_ratio` 를 다시 남긴다
+  (보라 판정 근거 확인용). 빨강은 `color_code=5`, 보라는 `rgb_ratio` 가 핵심 근거.
+- **검증**: PC에서 `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py`, 전체 `for t in tests/test_*.py; do python3 "$t"; done`
+  통과.
+- **주의**: 브릭 실기 검증 필요. 보라/빨강 각각 부저 1번+U턴, 갈색/흰색/노랑은 후보/판정에서 제외되는지 확인.
 
 ### 2026-07-03 — Stage 4 reflected RGB 분석 제거, brown 색상코드만 노드 판정 (Agent: codex)
 - **요청**: 이전에 챙겨 분석하던 RGB/RGB-RAW 값은 쓰지 말고, EV3 색상센서의 brown 값이 안정적이므로

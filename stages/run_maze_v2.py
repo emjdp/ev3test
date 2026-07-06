@@ -18,7 +18,8 @@ v2 변경점 (조향만 교체, 탐색/노드 로직은 v1 그대로 재사용):
     kp 0.22 / KD 0.05 / TURN_LIMIT 16) 를 import 해 재사용. 중앙 색상은 조향에서
     제외한다(stage4v2 와 동일 원리 — pd_step 은 중앙 raw 를 쓰지 않는다).
   - 중앙 색상(상시 컬러모드, 모드 전환 0회 유지)은 노드/마커 판정에만 쓴다:
-    검정=직진 길 있음, 노랑/파랑/빨강 마커. v1 과 동일.
+    검정=직진 길 있음, 노랑(출발)/빨강(방문)/초록(도착) 마커. 마커 색은
+    v1(파랑 방문/빨강 도착)에서 재배치 — 검정↔파랑 오인식 대응(아래 COL_VISIT 참조).
   - 000 가드: 직전 turn 이 클 때(|turn| > LOST_GUARD_TURN, 한창 보정 중)는
     (0,0,0) 을 노드 후보로 잡지 않는다 — 보정 중 순간 이탈이 막다른 길로
     오검출되는 것 차단. 진짜 선 끝이면 turn 이 줄어든 다음 루프들에서 잡힌다.
@@ -31,7 +32,8 @@ v1 에서 그대로 가져오는 것(import — 복붙 금지 규약):
   - 탐색 로직: bits_node / choose_branch / line_found / CANDIDATES / 우>좌>직
     우선순위 + 직전 분기 기억(returning/exclude).
   - 구동 헬퍼: advance_straight / backup_until_line / _run_turn(Stage 2 재사용).
-  - 000 후진 복구, 파랑 유턴, 빨강 도착, 노랑 출발 대기, 그리퍼/초음파.
+  - 000 후진 복구, 방문 마커 유턴, 도착 정지, 노랑 출발 대기, 그리퍼/초음파.
+    (마커 색만 v2 에서 재배치: 방문 파랑→빨강, 도착 빨강→초록)
 
 라이브 params: v1 의 follow_gain 을 kp 로 교체(시드 0.22 = stage3v2 실기 확정값).
 base_speed 시드도 PD 확정 조합(17)으로 맞춘다. left/right_th_steer 는 조향에서
@@ -73,7 +75,7 @@ from lib.turns import pivot                                          # noqa: E40
 from stages.run_maze import (                                        # noqa: E402
     bits_node, choose_branch, bits_to_str,
     advance_straight, backup_until_line, _tick_stop, _publish,
-    COL_BLACK, COL_BLUE, COL_YELLOW, COL_RED,
+    COL_BLACK, COL_YELLOW, COL_RED,
     CANDIDATES, SLOW_ON, OPPOSITE,
     LEFT_TH_NODE, RIGHT_TH_NODE,
     NODE_DEBOUNCE_MS,
@@ -177,6 +179,14 @@ PARAM_ORDER = [
 # 후보로 잡지 않는다. TURN_LIMIT(16, stage3v2)의 절반 — 실기에서 오검출이
 # 남으면 낮추고, 진짜 유실 반응이 늦으면 올린다.
 LOST_GUARD_TURN = 8.0
+
+# 마커 색 재배치(2026-07-06 실기): EV3 컬러센서가 검정 라인을 파랑(2)으로 자주
+# 오인해 라인트레이싱 중 가짜 유턴(BLUE_REVISIT)이 났다. 방문 마커를 검정과
+# 혼동이 적은 빨강으로 옮기고, 빨강을 쓰던 도착은 초록으로 바꾼다.
+# ★ 물리 코스도 같이 교체: 방문 노드 테이프 파랑→빨강, 도착 테이프 빨강→초록.
+COL_GREEN = 3                # ev3dev2 ColorSensor.color 코드
+COL_VISIT = COL_RED          # 방문(체크포인트) 마커 — v1 은 파랑이었다
+COL_GOAL = COL_GREEN         # 도착 마커 — v1 은 빨강이었다
 
 SAVE_PATH = os.path.join(_ROOT, "config", "run_maze_v2.json")
 STAGE_NAME = "run_maze_v2"
@@ -328,7 +338,7 @@ def run():
         hw.beep_ok()
         hw.beep_ok()
         state["arrived"] = True
-        log.log("NODE_IS_GOAL", "COLOR_RED", color=COL_RED)
+        log.log("NODE_IS_GOAL", "COLOR_GREEN", color=COL_GOAL)
 
     def handle_node(bits):
         hw.stop()
@@ -377,7 +387,7 @@ def run():
             return
 
         c = hw.read_center_color_value()
-        if c == COL_RED:                 # 전진했더니 도착 영역
+        if c == COL_GOAL:                # 전진했더니 도착 영역
             arrive()
             return
 
@@ -453,7 +463,7 @@ def run():
     cand = None
     cand_t0 = 0.0
     last_node_t = time.monotonic()
-    last_blue_t = 0.0
+    last_visit_t = 0.0
     last_follow_log = time.monotonic() - REASON_THROTTLE_S
 
     print("run_maze_v2 running. stop via 'robotctl stop' or Ctrl-C.")
@@ -486,18 +496,18 @@ def run():
             # (1) 중앙 색상(상시 컬러모드) — 노드/마커 판정 전용(조향에는 안 쓴다)
             c_color = hw.read_center_color_value()
 
-            if c_color == COL_RED:
+            if c_color == COL_GOAL:
                 arrive()
                 break
 
-            if (c_color == COL_BLUE and
-                    (now - last_blue_t) * 1000 >= COLOR_DEBOUNCE_MS):
+            if (c_color == COL_VISIT and
+                    (now - last_visit_t) * 1000 >= COLOR_DEBOUNCE_MS):
                 hw.stop()
                 state["visits"] += 1
-                log.log("VISIT_NODE", "BLUE_REVISIT", color=c_color, visits=state["visits"])
+                log.log("VISIT_NODE", "RED_REVISIT", color=c_color, visits=state["visits"])
                 _run_turn(hw, "uturn", params, log, tele, should_stop, should_pause, started)
                 state["returning"] = True
-                last_blue_t = time.monotonic()
+                last_visit_t = time.monotonic()
                 cand = None
                 reset_steer()
                 continue

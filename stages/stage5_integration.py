@@ -11,7 +11,7 @@ reader, but changes the branch behavior:
 
   - Stage 3/4 turn automatically toward a detected branch.
   - Stage 5 consumes a route sequence token at each confirmed junction.
-  - Color markers are read and logged, but they do not force an automatic U-turn.
+  - Confirmed color markers trigger the same automatic U-turn used in Stage 4.
 
 Default route is a photo-based direct path estimate from the shown maze:
 start(bottom-right) -> dong1 -> dong2 -> dong3 -> dong4 -> top corridor.
@@ -21,6 +21,7 @@ Python 3.5 compatible: no f-strings.
 """
 
 import argparse
+import json
 import os
 import sys
 import threading
@@ -55,10 +56,12 @@ from stages.stage3v2_linetrace_branch import (                    # noqa: E402
 )
 from stages.stage4_clolor_reflected import (                      # noqa: E402
     INITIAL_PARAMS as STAGE4_COLOR_PARAMS,
+    SAVE_PATH as STAGE4_COLOR_SAVE_PATH,
     beep_marker,
     marker_candidate,
     marker_candidate_kind,
     read_marker_at_rest,
+    run_marker_uturn,
 )
 
 
@@ -163,7 +166,25 @@ ACTIONS = [
 
 NODE_COOLDOWN_MS = BRANCH_COOLDOWN_MS
 STRAIGHT_ADVANCE_FACTOR = 2.0
-COLOR_COOLDOWN_MS = int(STAGE4_COLOR_PARAMS.get("marker_cooldown_ms", 1000))
+
+def load_stage4_color_defaults():
+    """Load Stage 4 saved color tuning without exposing more Stage 5 params."""
+    merged = dict(STAGE4_COLOR_PARAMS)
+    try:
+        with open(STAGE4_COLOR_SAVE_PATH, "r") as fp:
+            saved = json.load(fp)
+    except Exception:
+        saved = None
+
+    if isinstance(saved, dict):
+        for key, value in saved.items():
+            if key in merged:
+                merged[key] = value
+    return merged
+
+
+STAGE4_COLOR_DEFAULTS = load_stage4_color_defaults()
+COLOR_COOLDOWN_MS = int(STAGE4_COLOR_DEFAULTS.get("marker_cooldown_ms", 1000))
 
 
 def parse_sequence(text):
@@ -251,7 +272,7 @@ def make_stage4_color_params(route_params):
     Stage 5 exposes only six live params; color thresholds stay as Stage 4
     saved/default constants.
     """
-    merged = dict(STAGE4_COLOR_PARAMS)
+    merged = dict(STAGE4_COLOR_DEFAULTS)
     for key in route_params:
         merged[key] = route_params[key]
     return merged
@@ -493,10 +514,14 @@ def run(argv=None):
                          center_reflect_avg=result["center_reflect_avg"],
                          color_code=result["color_code"], rgb=result["rgb"],
                          rgb_ratio=result["rgb_ratio"])
+                if result["marker"] is not None:
+                    run_marker_uturn(hw, params, log, tele, should_stop,
+                                     should_pause, started, result, raw, bits_str)
                 pd.reset()
                 node_seen = 0
                 last_node_kind = None
                 last_marker_ms = now_ms()
+                last_node_ms = last_marker_ms
                 time.sleep(LOOP_DELAY_MS / 1000.0)
                 continue
 

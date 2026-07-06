@@ -21,6 +21,7 @@ from stages.stage5_integration import (  # noqa: E402
     MAX_STEP,
     PARAM_ORDER,
     UI_STEP,
+    STAGE4_COLOR_DEFAULTS,
     parse_sequence,
     sequence_to_text,
     classify_node_bits,
@@ -105,6 +106,8 @@ def test_stage5_params_and_color_merge():
     assert merged["kp"] == 0.5 and merged["base_speed"] == 11
     assert "marker_candidate_min" in merged
     assert "purple_blue_ratio_min" in merged
+    assert merged["marker_candidate_min"] == STAGE4_COLOR_DEFAULTS["marker_candidate_min"]
+    assert merged["purple_green_ratio_max"] == STAGE4_COLOR_DEFAULTS["purple_green_ratio_max"]
     print("stage5 params/color merge ok")
 
 

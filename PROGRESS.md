@@ -9,8 +9,10 @@
 색상 노드 판정 + 자동 180도 회전을 수행한다. 보라 후보 반사광/RGB 비율 튜닝값은 브릭에서
 `robotctl save` 완료했고 로컬 `config/stage4_clolor_reflected.json`에도 미러링했다.**
 (Stage 1 은 2026-06-30, Stage 2 는 2026-06-30 사용자 판단으로 실기 Done 처리.)
-**다음 단계는 Stage 5(통합: 라인트레이싱 + 노드에서 분기 회전) 착수 가능. Stage 5~7 은 이 stage3v2/4 트랙
-(bits+PD 라인추종+탱크 회전)을 기반으로 응용해 구현한다.**
+**Stage 5 는 2026-07-06 사진 미로 기반 1차 구현 착수. `stages/stage5_integration.py` 가
+Stage 3 v2 라인추종/탱크회전과 Stage 4 reflected 색 읽기를 재사용하되, 분기에서 보이는 쪽으로
+자동 회전하지 않고 사진 기반 기본 시퀀스(`R R L L S`, `--seq` 로 교체 가능)를 소비한다. 실기에서
+교차점 수/시퀀스 검증이 아직 필요하다.**
 
 ## 단계 상태판
 
@@ -21,7 +23,7 @@
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
 | Stage 4 색상코드 노드 판정 | 🟢 실기 Done | **2026-07-03 사용자 확인.** `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. 브릭 `robotctl save` 완료, 로컬 `config/stage4_clolor_reflected.json` 미러링. `stage4v2_color_follow.py` 는 보존하되 공식 Done 트랙은 reflected 쪽이다 |
-| Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
+| Stage 5 통합(트레이싱+회전) | 🟡 진행 중 | 2026-07-06 `stages/stage5_integration.py` 1차 구현. 사진 미로 직접 도착 경로 추정 기본값 `R R L L S`; `--seq` 로 현장 수정 가능. 색 마커는 읽고 기록만 하며 자동 U턴하지 않음. 실기 검증 필요 |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
 
@@ -50,8 +52,9 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
-- [ ] **Stage 5 착수** — Stage 3 v2(bits+PD 라인추종+분기 탱크회전)와 Stage 4 reflected
-      색상 노드 판정/자동 U턴 확정값을 기반으로 통합 방향 시퀀스·노드 종류 구분을 설계한다.
+- [ ] **Stage 5 실기 검증** — `python3 stages/stage5_integration.py --seq "R R L L S"` 기본 경로가
+      사진 미로의 실제 교차점 순서와 맞는지 확인한다. 한 노드가 어긋나면 코드 수정 대신 `--seq`
+      만 바꿔 재실행한다. Stage 5 는 색 마커를 `COLOR_READ` 로 기록하지만 자동 U턴은 하지 않는다.
 - [ ] ~~**Stage 4 v2 실기 검증(2026-07-03 코드 준비됨, claude)**~~ — **대체됨(2026-07-03)**:
       공식 Stage 4 Done 트랙은 `stage4_clolor_reflected.py` 다. v2 파일/명세는 보존하되
       필요 시 참고 후보로만 본다. 원래 절차:
@@ -209,6 +212,16 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-06 — Stage 5 사진 미로 경로 시퀀스 1차 구현 (Agent: codex)
+- **요청**: 첨부 사진 미로를 기준으로 도착점까지 최적으로 가기 위한 분기판정 논리를 코드로 구현할 수 있는지 확인 후 착수.
+- **구현**: `stages/stage5_integration.py` 신규 작성. Stage 3 v2 의 `black_bits`/`pd_step`/`advance_straight`/`_run_turn` 과 Stage 4 reflected 의 `read_marker_at_rest`/색 후보 판정을 재사용한다.
+- **핵심 변경**: Stage 3/4 처럼 `110/111` 이면 즉시 좌회전하지 않는다. `111` 은 `CROSS`, `110` 은 `LEFT_BRANCH`, `011` 은 `RIGHT_BRANCH` 로 기록하고, 사진 기반 경로 시퀀스 토큰(`L/S/R/U`)이 실제 행동을 고른다.
+- **기본 시퀀스**: 사진상 직접 도착 경로 추정값 `R R L L S`. 첫 실기에서 교차점 수가 다르면 코드 수정 없이 `--seq "..."` 로 바꿔 재실행한다.
+- **색 처리**: Stage 4 reflected 색 읽기는 유지하지만, Stage 5 에서는 색 인식이 자동 U턴을 트리거하지 않고 `COLOR_READ` 로 기록만 한다.
+- **테스트**: `tests/test_stage5_logic.py` 신규 작성(시퀀스 파싱, node bits 분류, 같은 kind 연속 확정, 시퀀스 소비/소진, Stage 4 색 params 병합). 현재 PC 에 `python`/`py`/`python3` 실행기가 없어 py_compile/테스트 실행은 못 했다.
+- **문서**: `docs/DECISIONS.md` 에 `NODE_DECISION`/`NODE_STRAIGHT`/`SEQUENCE_DONE`/`SEQUENCE_EXHAUSTED` reason_code 추가.
+- **실기 필요**: `stage5_integration.py --dry-plan`, 이후 브릭에서 기본 시퀀스 주행. 한 번에 변수 하나 원칙에 따라 우선 시퀀스만 검증하고, 연결 거리 문제일 때만 `action_advance_mm` 을 조정한다.
 
 ### 2026-07-03 — Stage 4 실기 Done 확정값 저장 (Agent: codex)
 - **사용자 확인**: 아래 저장값으로 Stage 4 를 Done 처리. 브릭에서

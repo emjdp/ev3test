@@ -29,6 +29,8 @@
 |---|---|---|
 | `LINE_FOLLOW` | 라인추종 중(throttle) | reflect, bits, error, turn |
 | `BRANCH_LEFT` / `BRANCH_RIGHT` | **Stage 3(공식, bits 트랙)**: 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
+| `NODE_DECISION` | **Stage 5**: 사진 미로 경로 시퀀스가 소비할 교차로 확정. Stage 3 의 111→left tie-break 대신, CROSS/LEFT_BRANCH/RIGHT_BRANCH 를 따로 남긴 뒤 시퀀스가 회전을 고른다 | node_index, node_kind, bits, selected, reflect |
+| `NODE_STRAIGHT` | **Stage 5**: 시퀀스 토큰 `S` 로 교차로를 직진 통과 | node_index, selected, advance_mm, moved_mm |
 | `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유) | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 부터는 node_id/available_exits/selected/rule 도 추가) |
 | `COLOR_READ` | 노드 색 읽음. Stage 4-D 관문 `do read_color` 정지 실측은 method:"at_rest", slot_ms 를 남긴다. Stage 4 reflected 는 반사광 게이트 판정 근거(candidate_kind, center_reflect_avg, color_code, rgb_ratio)를 남긴다. Stage 4 v2 는 주행 중 확정 method:"driving"/정지 판독 method:"at_rest" 로 남긴다 | color, reflect(바닥/노드 구분), dist_since_node_mm |
 | `MARKER_UTURN` | Stage 4 반사광 게이트에서 보라/RGB 또는 빨강 색상코드를 확정해 자동 180도 회전을 트리거 | marker, marker_source, candidate_kind, reflect, bits, color_code, center_reflect_avg, rgb_ratio |
@@ -37,6 +39,7 @@
 | `BENCH_TOGGLE` | Stage 4-D 관문 `do bench_toggle` 완료 — rule 이 GO/NO_GO 판정(max 기준, budget=BLIND_BUDGET_MS) | avg_ms, max_ms, k, settle_ms, dummy, zero_reads, budget_ms |
 | `NODE_IS_GOAL` / `_CHECKPOINT` / `_START` / `_UNKNOWN` | 색으로 노드 종류 확정(Stage 4 v2 는 COLOR_READ 직후 항상 한 쌍으로 남김) | color |
 | `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구 | reflect |
+| `SEQUENCE_DONE` / `SEQUENCE_EXHAUSTED` | **Stage 5**: 사진 미로 경로 시퀀스를 모두 소비했거나, 교차로를 더 만났는데 남은 토큰이 없어 정지 | node_index |
 | `PAUSE` / `RESUME` | 대시보드/robotctl 일시정지 토글 | source |
 | `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | source |
 

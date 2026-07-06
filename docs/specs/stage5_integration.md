@@ -1,6 +1,10 @@
 # Stage 5 — 통합: 라인트레이싱 + 노드 분기 회전 구현 명세
 
 > 상태: DRAFT (실기 미검증)
+> 2026-07-06 구현 메모: `stages/stage5_integration.py` 1차 구현은 이 문서의 오래된
+> `follow_to_node` 추상화 대신, 공식 Stage 3 v2/Stage 4 reflected 코드를 직접 재사용한다.
+> 사진 미로 직접 도착 경로 추정 기본값은 `R R L L S` 이며 `--seq` 로 현장에서 교체한다.
+> 색 마커는 `COLOR_READ` 로 기록하되 Stage 4 처럼 자동 U턴하지 않는다.
 > 선행: Stage 1(하드웨어/주행 부호 기반) · Stage 2(회전) · Stage 3(좌/중/우 3센서 추종
 >       `decide_line3` + 노드 감지) 실기 Done. **라인추종층은 Stage 3 의 3센서 추종**이다
 >       (Stage 1 중앙센서 단일 PID 재사용 아님 — 2026-06-30 Stage 3 변경 반영).

@@ -37,7 +37,6 @@ from lib.telemetry import Telemetry                               # noqa: E402
 from lib.decision_log import DecisionLog                          # noqa: E402
 from lib.tuning_server import TuningServer                        # noqa: E402
 from stages.stage3v2_linetrace_branch import (                    # noqa: E402
-    ADVANCE_SPEED,
     BRANCH_COOLDOWN_MS,
     LOOP_DELAY_MS,
     REASON_THROTTLE_S,
@@ -69,6 +68,10 @@ TOKEN_LEFT = "L"
 TOKEN_STRAIGHT = "S"
 TOKEN_RIGHT = "R"
 TOKEN_UTURN = "U"
+
+# Stage 5 only: slow down encoder nudges after a node decision. Stage 3 Done
+# keeps its own ADVANCE_SPEED value untouched.
+ADVANCE_SPEED = 11
 
 # Photo-based direct route estimate. The first real run should verify it with
 # telemetry. If one decision is off, prefer --seq over editing code.
@@ -106,7 +109,7 @@ TOKEN_TO_CMD = {
 
 INITIAL_PARAMS = {
     "kp": 0.22,
-    "base_speed": 17,
+    "base_speed": 13,
     "turn_speed": 6,
     "turn_90_factor": 0.66,
     "node_confirm_count": 2,

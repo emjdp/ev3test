@@ -37,7 +37,8 @@ def test_parse_sequence_forms():
         TOKEN_RIGHT, TOKEN_RIGHT, TOKEN_LEFT, TOKEN_LEFT, TOKEN_STRAIGHT]
     assert parse_sequence("right,left,straight,uturn") == [
         TOKEN_RIGHT, TOKEN_LEFT, TOKEN_STRAIGHT, TOKEN_UTURN]
-    assert sequence_to_text(parse_sequence(PHOTO_DIRECT_SEQ)) == "R R L L S"
+    assert sequence_to_text(parse_sequence(PHOTO_DIRECT_SEQ)) == (
+        "R L L R L L R L S S L R L L R L S S R L R R L L L")
     print("parse_sequence forms ok")
 
 

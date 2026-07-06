@@ -4,7 +4,7 @@
 
 Run on EV3:
     python3 stages/stage5_integration.py
-    python3 stages/stage5_integration.py --seq "R R L L S"
+    python3 stages/stage5_integration.py --seq "R L L R L L R L S S L R L L R L S S R L R R L L L"
 
 This stage keeps the Stage 3 v2 line follower and Stage 4 reflected color
 reader, but changes the branch behavior:
@@ -69,7 +69,7 @@ TOKEN_UTURN = "U"
 
 # Photo-based direct route estimate. The first real run should verify it with
 # telemetry. If one decision is off, prefer --seq over editing code.
-PHOTO_DIRECT_SEQ = "R R L L S"
+PHOTO_DIRECT_SEQ = "R L L R L L R L S S L R L L R L S S R L R R L L L"
 
 TOKEN_ALIASES = {
     "L": TOKEN_LEFT,

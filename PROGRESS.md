@@ -210,6 +210,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-06 — 대화 내보내기 안내 파일 재추가 (Agent: codex)
+- **요청**: `master` 브랜치에 `etc/` 폴더가 보이도록 대화 내보내기 안내를 다시 추가.
+- **반영**: Codex가 채팅 UI의 전체 원문 transcript를 직접 export 할 수 없다는 한계,
+  사용자가 직접 원문을 저장하는 방법, 현재 Stage 4 대화 요약을
+  `etc/conversation_export_guide.md`에 기록했다.
+
 ### 2026-07-03 — Stage 4 실기 Done 확정값 저장 (Agent: codex)
 - **사용자 확인**: 아래 저장값으로 Stage 4 를 Done 처리. 브릭에서
   `status: save: ok saved on robot: /home/robot/ev3test/config/stage4_clolor_reflected.json` 확인.

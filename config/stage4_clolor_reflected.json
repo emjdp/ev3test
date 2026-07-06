@@ -1,0 +1,21 @@
+{
+  "base_speed": 17,
+  "branch_advance_mm": 30,
+  "branch_confirm_count": 2,
+  "color_dummy_reads": 1,
+  "color_mode_settle_ms": 10,
+  "kp": 0.22,
+  "marker_candidate_max": 32,
+  "marker_candidate_min": 21,
+  "marker_cooldown_ms": 1000,
+  "marker_sample_count": 3,
+  "marker_sample_delay_ms": 1,
+  "marker_stable_ms": 0,
+  "purple_blue_ratio_min": 0.23,
+  "purple_green_ratio_max": 0.42,
+  "purple_red_ratio_min": 0.2,
+  "red_candidate_max": 86,
+  "red_candidate_min": 73,
+  "turn_90_factor": 0.66,
+  "turn_speed": 6
+}

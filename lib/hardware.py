@@ -178,6 +178,27 @@ class Ev3Hardware(object):
             _ = self._center.color
         return self._center.color
 
+    def _read_center_rgb_raw(self):
+        try:
+            return (self._center.value(0),
+                    self._center.value(1),
+                    self._center.value(2))
+        except Exception:
+            raw = self._center.raw
+            return (raw[0], raw[1], raw[2])
+
+    def read_center_rgb(self, settle_s, dummy_reads):
+        """Switch in2 to RGB-RAW and return one (red, green, blue) sample."""
+        try:
+            self._center.mode = "RGB-RAW"
+        except Exception:
+            pass
+        if settle_s > 0:
+            time.sleep(settle_s)
+        for _i in range(int(dummy_reads)):
+            self._read_center_rgb_raw()
+        return self._read_center_rgb_raw()
+
     def restore_reflect_mode(self, settle_s):
         """컬러 모드 → 반사광 모드 복귀 + settle(라인추종 재개 전 안정화)."""
         _ = self._center.reflected_light_intensity  # 모드 복귀 트리거

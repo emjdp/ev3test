@@ -5,11 +5,11 @@
 
 ## 현재 단계
 
-**Stage 3 — 🟢 실기 Done(2026-07-02, 사용자 확인). `stage3v2_linetrace_branch.py`(bits+PD
-라인추종 + 분기 탱크회전)가 공식 Stage 3 구현체. 좌/우 분기 각각 여러 번 재현 성공, 흔들림
-오회전 없음(아래 상태판/로그 참조).**
+**Stage 4 — 🟢 실기 Done(2026-07-03, 사용자 확인). `stage4_clolor_reflected.py`가 보라/빨강
+색상 노드 판정 + 자동 180도 회전을 수행한다. 보라 후보 반사광/RGB 비율 튜닝값은 브릭에서
+`robotctl save` 완료했고 로컬 `config/stage4_clolor_reflected.json`에도 미러링했다.**
 (Stage 1 은 2026-06-30, Stage 2 는 2026-06-30 사용자 판단으로 실기 Done 처리.)
-**다음 단계는 Stage 4(색상코드 노드 판정) 착수 가능. Stage 4~7 은 이 stage3v2 트랙
+**다음 단계는 Stage 5(통합: 라인트레이싱 + 노드에서 분기 회전) 착수 가능. Stage 5~7 은 이 stage3v2/4 트랙
 (bits+PD 라인추종+탱크 회전)을 기반으로 응용해 구현한다.**
 
 ## 단계 상태판
@@ -20,7 +20,7 @@
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
-| Stage 4 색상코드 노드 판정 | 🟡 진행 중 | **2026-07-03 사용자 방향 전환 → v2 트랙**(`stages/stage4v2_color_follow.py`): 중앙 **상시 컬러 모드** + 좌/우 반사광 라인추종 + 주행 중 마커 색 판정(모드 전환 0회). 명세+코드+PC 검증 완료, **실기 검증 대기**(성립 조건 3개 — 명세 §0/§7). 브릿지 후보 A~D 와 D 관문(bench_toggle)은 **보류**(v2 no-go 시 C 로 회귀) |
+| Stage 4 색상코드 노드 판정 | 🟢 실기 Done | **2026-07-03 사용자 확인.** `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. 브릭 `robotctl save` 완료, 로컬 `config/stage4_clolor_reflected.json` 미러링. `stage4v2_color_follow.py` 는 보존하되 공식 Done 트랙은 reflected 쪽이다 |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
@@ -50,7 +50,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
-- [ ] **Stage 4 v2 실기 검증(2026-07-03 코드 준비됨, claude)** — 명세
+- [ ] **Stage 5 착수** — Stage 3 v2(bits+PD 라인추종+분기 탱크회전)와 Stage 4 reflected
+      색상 노드 판정/자동 U턴 확정값을 기반으로 통합 방향 시퀀스·노드 종류 구분을 설계한다.
+- [ ] ~~**Stage 4 v2 실기 검증(2026-07-03 코드 준비됨, claude)**~~ — **대체됨(2026-07-03)**:
+      공식 Stage 4 Done 트랙은 `stage4_clolor_reflected.py` 다. v2 파일/명세는 보존하되
+      필요 시 참고 후보로만 본다. 원래 절차:
+      명세
       [stage4v2_color_follow.md](docs/specs/stage4v2_color_follow.md) §7 순서대로:
       ① 정지 실측(선결): 검은 선/흰 바닥/각 마커 위에서 `robotctl do read_color` **5회씩**
       → 색코드 표를 이 파일에 기록(검은 선이 안정적으로 1 인지가 go/no-go 핵심).
@@ -204,6 +209,98 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-03 — Stage 4 실기 Done 확정값 저장 (Agent: codex)
+- **사용자 확인**: 아래 저장값으로 Stage 4 를 Done 처리. 브릭에서
+  `status: save: ok saved on robot: /home/robot/ev3test/config/stage4_clolor_reflected.json` 확인.
+- **브릭 config 회수**: `scp robot@ev3dev.local:/home/robot/ev3test/config/stage4_clolor_reflected.json ...`
+  를 시도했으나 현재 PC에서 `ev3dev.local` 이름 해석 실패로 직접 회수는 못 했다. 사용자가 붙여준
+  `robotctl get/save` 출력값을 기준으로 로컬 `config/stage4_clolor_reflected.json` 을 미러링했다
+  (`kp/base_speed/turn_speed` 는 Stage 4 코드의 현재 기본값 0.22/17/6 유지).
+- **Done 판단**: 보라 후보 반사광을 감지하고, RGB 비율을 아래처럼 넓힌 값으로 보라색 판정이 되는
+  것으로 사용자 확인. Stage 4 색상코드 노드 판정 + 자동 U턴은 실기 Done.
+
+| param | 확정값 | 메모 |
+|---|---:|---|
+| `kp` | 0.22 | Stage 3 v2 기반 주행값 |
+| `base_speed` | 17 | Stage 3 v2 기반 주행값 |
+| `turn_speed` | 6 | Stage 3 v2 기반 회전값 |
+| `turn_90_factor` | 0.66 | Stage 3 v2 기반 분기 회전값 |
+| `branch_confirm_count` | 2 | Stage 3 v2 기반 |
+| `branch_advance_mm` | 30 | Stage 3 v2 기반 |
+| `marker_candidate_min` | 21 | 보라 후보 반사광 하한 |
+| `marker_candidate_max` | 32 | 보라 후보 반사광 상한 |
+| `red_candidate_min` | 73 | 빨강 후보 반사광 하한(흰색 68과 분리) |
+| `red_candidate_max` | 86 | 빨강 후보 반사광 상한 |
+| `marker_stable_ms` | 0 | 후보 즉시 색/RGB 읽기 |
+| `marker_cooldown_ms` | 1000 | 중복 인식 방지 |
+| `marker_sample_count` | 3 | 색/RGB 샘플 수 |
+| `marker_sample_delay_ms` | 1 | 샘플 간 대기 |
+| `color_mode_settle_ms` | 10 | 모드 전환 settle |
+| `color_dummy_reads` | 1 | 전환 직후 더미 읽기 |
+| `purple_red_ratio_min` | 0.20 | 보라 RGB 판정 |
+| `purple_blue_ratio_min` | 0.23 | 보라 RGB 판정 |
+| `purple_green_ratio_max` | 0.42 | 보라 RGB 판정 |
+
+### 2026-07-03 — Stage 4 reflected 보라+빨강 노드 판정으로 재구성 (Agent: codex)
+- **요청**: 갈색 의심/판별을 지우고, 보라색은 기존 반사광 의심값에서 RGB 직접 판정,
+  빨간색은 흰색(68)과 겹치지 않는 반사광 후보 범위를 새로 둔 뒤 EV3 색상센서 RED 값으로 확정.
+- **반영**: `stages/stage4_clolor_reflected.py` 의 후보 판정을 `candidate_kind` 로 분리했다.
+  - 보라: `marker_candidate_min=23`, `marker_candidate_max=30`(기본값, 23<=reflect<30)에서 즉시 정지 후
+    RGB-RAW 평균의 비율(`purple_red_ratio_min`, `purple_blue_ratio_min`, `purple_green_ratio_max`)로 확정.
+  - 빨강: `red_candidate_min=74`, `red_candidate_max=86`(기본값, 74<=reflect<86)에서 즉시 정지 후
+    EV3 color code majority 가 `COLOR_RED(5)` 일 때 확정. 흰색 68/노랑 70과 기본값상 분리.
+  - 갈색: `COLOR_BROWN`/brown RGB ratio 판단 및 관련 live params 제거. 브릭에 예전 저장 params 가 있으면
+    stage 시작 시 기본값으로 돌아갈 수 있으므로 새 기본값으로 다시 실기 확인 후 필요하면 `robotctl save`.
+- **판단 기록**: `COLOR_READ`/`MARKER_UTURN` 에 `candidate_kind`, `rgb`, `rgb_ratio` 를 다시 남긴다
+  (보라 판정 근거 확인용). 빨강은 `color_code=5`, 보라는 `rgb_ratio` 가 핵심 근거.
+- **검증**: PC에서 `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py`, 전체 `for t in tests/test_*.py; do python3 "$t"; done`
+  통과.
+- **주의**: 브릭 실기 검증 필요. 보라/빨강 각각 부저 1번+U턴, 갈색/흰색/노랑은 후보/판정에서 제외되는지 확인.
+
+### 2026-07-03 — Stage 4 reflected RGB 분석 제거, brown 색상코드만 노드 판정 (Agent: codex)
+- **요청**: 이전에 챙겨 분석하던 RGB/RGB-RAW 값은 쓰지 말고, EV3 색상센서의 brown 값이 안정적이므로
+  brown 색상코드가 나오면 노드로 판단하도록 단순화.
+- **반영**: `stages/stage4_clolor_reflected.py` 의 자동/수동 마커 읽기에서 `read_center_rgb` 호출과
+  RGB 비율 분류를 제거했다. 이제 반사광 후보 범위 진입 → 즉시 정지 → 중앙센서 color code 샘플
+  majority → `COLOR_BROWN(7)` 이면 marker=`brown`, source=`color_code_brown` 으로 확정한다.
+  brown 이 아니면 RGB fallback 없이 unknown 으로 두고 U턴하지 않는다.
+- **호환성**: 브릭 저장 params 에 예전 RGB 튜닝값이 남아 있을 수 있어 관련 param 이름은 호환용으로
+  남겼지만, 판단/센서 읽기/로그에는 사용하지 않는다.
+- **판단 기록**: `MARKER_UTURN` detail 에서 `rgb_ratio` 를 제거하고 color_code 중심으로 정리.
+- **검증**: PC에서 `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py` 통과. 전체 회귀 테스트는 아래 커밋 전 확인.
+- **주의**: 브릭 실기 검증 필요. brown 이 아닌 후보 반사광(예: 보라/바닥 노이즈)에서 정지 후
+  unknown 으로 복귀하는 동작과, brown 에서만 부저+U턴하는지 확인.
+
+### 2026-07-03 — Stage 4 reflected 의심 반사광 즉시 색상 읽기 변경 (Agent: codex)
+- **요청**: `stages/stage4_clolor_reflected.py` 에서 의심 반사광이 0.01초 이상 유지될 때까지 기다리지
+  말고, 의심 반사광이 보이면 바로 색상센서를 켜도록 수정.
+- **반영**: `MarkerCandidateTracker` 의 `marker_stable_ms` 지속시간 조건을 제거했다. 중앙 반사광이
+  `marker_candidate_min <= reflect < marker_candidate_max` 범위에 들어온 첫 제어 틱에서 즉시 정지
+  후 색상코드 읽기 → 인식 부저 → 자동 U턴 흐름으로 들어간다. 후보 범위 안에 계속 머무는
+  동안 중복 트리거를 막는 `confirmed_inside` 와, 인식 후 재트리거를 막는 `marker_cooldown_ms` 는 유지.
+- **호환성**: 브릭에 저장된 기존 params 와 dashboard 호환을 위해 `marker_stable_ms` 항목은 남겼지만,
+  판단에는 더 이상 사용하지 않는다(기본값 0, 허용범위 0..1000).
+- **검증**: PC에서 `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py`, 전체 `for t in tests/test_*.py; do python3 "$t"; done`
+  통과. **브릭 실기 검증 필요**.
+
+### 2026-07-03 — Stage 4 reflected 색 마커 인식 후 자동 U턴 추가 (Agent: codex)
+- **요청**: `stages/stage4_clolor_reflected.py` 에서 색상 인식이 되면 노드로 보고 180도 회전한 뒤
+  다시 라인트레이싱을 계속하도록 수정.
+- **반영**: 자동 반사광 게이트에서 마커를 확정하면 기존 인식 부저는 그대로 울리고,
+  Stage 3 v2/Stage 2 회전 경로(`_run_turn(..., "uturn")`)를 재사용해 180도 회전한다.
+  `_run_turn` 의 완료 부저는 자동 U턴에서만 mute proxy 로 막아, 사용자가 보고 있는
+  "색 인식 부저 1번" 신호가 섞이지 않게 했다. 수동 `robotctl do uturn` 은 기존대로 회전 완료
+  부저가 난다.
+- **판단 기록**: `MARKER_UTURN` reason_code 를 `docs/DECISIONS.md` 카탈로그에 추가. 자동 U턴
+  직전 marker/source/reflect/bits/color_code 를 기록한다.
+- **검증**: PC에서 `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py`, `python3 tests/test_stage3v2_logic.py` 통과.
+- **주의**: 브릭 실기 검증 필요. 색 마커 위에서 자동 U턴 후 같은 마커를 다시 읽지 않는지
+  `marker_cooldown_ms`(기본 1000ms)를 함께 본다.
 
 ### 2026-07-03 — ev3sess 전역 런처 설치: 스크립트 없는 브랜치에서도 실행 (Agent: codex)
 - **요청**: 다른 브랜치로 전환하면 `tools/ev3_session.sh` 파일이 없어질 수 있으니, 그런

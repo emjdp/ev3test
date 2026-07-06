@@ -199,6 +199,7 @@ ACTIONS = [
 
 MARKER_AUDIO_FILES = {
     "red": (
+        "/usr/share/sounds/ev3dev/numbers/one.wav",
         "/usr/share/sounds/ev3dev/one.wav",
         "/usr/share/sounds/ev3dev/One.wav",
         "/home/robot/one.wav",
@@ -215,6 +216,7 @@ MARKER_AUDIO_FILES = {
         "One",
     ),
     "purple": (
+        "/usr/share/sounds/ev3dev/numbers/two.wav",
         "/usr/share/sounds/ev3dev/two.wav",
         "/usr/share/sounds/ev3dev/Two.wav",
         "/home/robot/two.wav",
@@ -231,6 +233,8 @@ MARKER_AUDIO_FILES = {
         "Two",
     ),
 }
+
+_EVENT_KEYS = ("event", "event_seq", "events", "reason")
 
 
 def _in_range(value, lo, hi):
@@ -344,34 +348,70 @@ def majority(values):
 
 
 def _play_sound_candidates(hw, candidates):
-    try:
-        play_sound_file = getattr(hw, "play_sound_file", None)
-        if play_sound_file is not None and play_sound_file(candidates):
-            return True
-    except Exception:
-        pass
-
+    result = {
+        "ok": False,
+        "method": None,
+        "path": None,
+        "skipped": [],
+        "errors": [],
+    }
     sound = getattr(hw, "_sound", None)
     if sound is None:
-        return False
+        result["errors"].append("sound_unavailable")
+        return result
+
     for candidate in candidates:
+        if os.path.isabs(candidate) and not os.path.exists(candidate):
+            result["skipped"].append(candidate)
+            continue
         try:
-            sound.play_file(candidate)
-            return True
-        except Exception:
-            pass
-    return False
+            try:
+                sound.play_file(candidate, volume=100)
+            except TypeError:
+                sound.play_file(candidate)
+            result["ok"] = True
+            result["method"] = "play_file"
+            result["path"] = candidate
+            return result
+        except Exception as exc:
+            result["errors"].append("{}: {}".format(candidate, exc))
+
+    return result
 
 
 def beep_marker(hw, marker):
     candidates = MARKER_AUDIO_FILES.get(marker)
-    if candidates is not None and _play_sound_candidates(hw, candidates):
-        return
+    if candidates is not None:
+        result = _play_sound_candidates(hw, candidates)
+        if result["ok"]:
+            return result
+    else:
+        result = {
+            "ok": False,
+            "method": None,
+            "path": None,
+            "skipped": [],
+            "errors": ["unknown_marker"],
+        }
 
     try:
         hw.beep_ok()
+        result["ok"] = True
+        result["method"] = "beep"
     except Exception:
-        pass
+        result["errors"].append("beep_failed")
+    return result
+
+
+def log_sound_play(log, marker, source, result):
+    log.log("SOUND_PLAY", source,
+            marker=marker,
+            sound_ok=result.get("ok"),
+            sound_method=result.get("method"),
+            sound_path=result.get("path"),
+            sound_skipped=result.get("skipped"),
+            sound_errors=result.get("errors"))
+
 
 class _MuteTurnBeepHw(object):
     def __init__(self, hw):
@@ -461,6 +501,7 @@ def read_marker_at_rest(hw, params, stop_flag, center_reflect_hint=None, candida
 
 def _publish(tele, params, started, **overrides):
     now = time.monotonic()
+    latest = tele.latest()
     frame = {
         "t_ms": int((now - started) * 1000),
         "param_rev": params.rev(),
@@ -478,6 +519,9 @@ def _publish(tele, params, started, **overrides):
         "marker_elapsed_ms": 0,
         "branch_seen": 0,
     }
+    for key in _EVENT_KEYS:
+        if key in latest and key not in overrides:
+            frame[key] = latest[key]
     frame.update(overrides)
     tele.publish(frame)
 
@@ -572,7 +616,8 @@ def run():
                 pending["beep"] = False
 
             if beep_test:
-                beep_marker(hw, "purple")
+                sound_result = beep_marker(hw, "purple")
+                log_sound_play(log, "purple", "MANUAL_TEST", sound_result)
                 _publish(tele, params, started, mode="beep_test")
                 continue
 
@@ -582,7 +627,8 @@ def run():
                 hw.stop()
                 result = read_marker_at_rest(hw, snap, stop_flag)
                 if result["marker"] is not None:
-                    beep_marker(hw, result["marker"])
+                    sound_result = beep_marker(hw, result["marker"])
+                    log_sound_play(log, result["marker"], "MANUAL_MARKER", sound_result)
                 log.log("COLOR_READ", "MANUAL", marker=result["marker"],
                         marker_source=result["source"],
                         candidate_kind=result["candidate_kind"],
@@ -639,7 +685,8 @@ def run():
                          marker_elapsed_ms=marker_elapsed,
                          branch_seen=branch_seen)
                 if result["marker"] is not None:
-                    beep_marker(hw, result["marker"])
+                    sound_result = beep_marker(hw, result["marker"])
+                    log_sound_play(log, result["marker"], "AUTO_MARKER", sound_result)
                     run_marker_uturn(hw, params, log, tele, should_stop,
                                      should_pause, started, result, raw, bits_str)
                 pd.reset()

@@ -37,6 +37,7 @@
 | `SEQ_SET` | **Stage 5**: `do set_seq` 로 시퀀스 교체 + 처음부터 재시작 | seq |
 | `COLOR_READ` | 노드 색 읽음. Stage 4-D 관문 `do read_color` 정지 실측은 method:"at_rest", slot_ms 를 남긴다. Stage 4 reflected 는 반사광 게이트 판정 근거(candidate_kind, center_reflect_avg, color_code, rgb_ratio)를 남긴다. Stage 4 v2 는 주행 중 확정 method:"driving"/정지 판독 method:"at_rest" 로 남긴다 | color, reflect(바닥/노드 구분), dist_since_node_mm |
 | `MARKER_UTURN` | Stage 4 반사광 게이트에서 보라/RGB 또는 빨강 색상코드를 확정해 자동 180도 회전을 트리거 | marker, marker_source, candidate_kind, reflect, bits, color_code, center_reflect_avg, rgb_ratio |
+| `SOUND_PLAY` | Stage 4 reflected 색상 마커 확인음 또는 `do beep_test` 사운드 재생 시도 | marker, sound_ok, sound_method, sound_path, sound_skipped, sound_errors |
 | `COLOR_MODE_ENTER` | Stage 4 v2 시작 시 중앙센서 컬러 모드 진입(주행 전 1회뿐) | color, settle_ms, dummy |
 | `REFLECT_READ` | Stage 4 `do read_reflect` 정지 실측(§7-0a 공통 선결) | reflect(L/C/R) |
 | `BENCH_TOGGLE` | Stage 4-D 관문 `do bench_toggle` 완료 — rule 이 GO/NO_GO 판정(max 기준, budget=BLIND_BUDGET_MS) | avg_ms, max_ms, k, settle_ms, dummy, zero_reads, budget_ms |

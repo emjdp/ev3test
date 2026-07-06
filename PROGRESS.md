@@ -235,6 +235,20 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-06 — Stage 4 사운드 재생/이벤트 로그 수정 (Agent: codex)
+- **문제 확인**: 브릭에서 `stage4_clolor_reflected.py` 는 실행 중이고 8765 서버도 열려 있었지만,
+  EV3 실제 숫자 사운드 파일은 `/usr/share/sounds/ev3dev/numbers/one.wav`,
+  `/usr/share/sounds/ev3dev/numbers/two.wav` 인데 코드 후보에는 `/numbers/` 경로가 빠져 있었다.
+  또 watcher 는 samples 는 기록했지만 `DecisionLog` 이벤트가 telemetry frame 의 `event/events`
+  로 실리지 않아 `events.jsonl` 이 비어 있었다.
+- **수정**: Stage 4 reflected 사운드 후보에 실제 `/numbers/` 경로를 추가하고, 존재하지 않는
+  절대경로는 재생 전에 skip 한다. `SOUND_PLAY` reason 을 추가해 재생 성공/실패와 사용 경로를
+  events 로 남긴다. `DecisionLog` 는 최근 이벤트 목록을 telemetry 에 싣도록 보강했다.
+- **PC 검증**: `python3 -m py_compile lib/*.py stages/*.py tools/*.py tests/*.py`,
+  `python3 tests/test_stage4_clolor_reflected_logic.py`, 전체 `tests/test_*.py` 통과.
+- **브릭 확인**: 새 파일 업로드 후 `beep_marker(hw, "purple")` 단독 호출 결과
+  `/usr/share/sounds/ev3dev/numbers/two.wav` 를 `play_file` 로 성공 반환.
+
 ### 2026-07-06 — inchul Stage 4 사운드 변경 master 병합 (Agent: codex)
 - `origin/inchul` 의 `8f66d29 Stage4: 색상 마커 사운드 재생 반영` 을 `master` 로 병합했다.
   변경 파일은 `stages/stage4_clolor_reflected.py`, `stages/stage4_color.py` 이며 Stage 5

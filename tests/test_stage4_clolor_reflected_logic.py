@@ -4,6 +4,7 @@
 
 import os
 import sys
+import tempfile
 
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +19,7 @@ from stages.stage4_clolor_reflected import (                  # noqa: E402
     BASE_PIVOT_DEG_180, TURN_180_FACTOR, COLOR_RED,
     MarkerCandidateTracker, marker_candidate, marker_candidate_kind,
     classify_marker_by_color_code, classify_purple_by_rgb,
-    read_marker_at_rest, run_marker_uturn,
+    read_marker_at_rest, run_marker_uturn, beep_marker, MARKER_AUDIO_FILES,
 )
 
 
@@ -95,6 +96,20 @@ class FakeMarkerHw(FakeHw):
 
     def restore_reflect_mode(self, settle_s):
         self.restore_calls += 1
+
+
+class FakeSound(object):
+    def __init__(self):
+        self.played = []
+
+    def play_file(self, path, volume=100):
+        self.played.append((path, volume))
+
+
+class FakeSoundHw(FakeHw):
+    def __init__(self):
+        FakeHw.__init__(self)
+        self._sound = FakeSound()
 
 
 def _params():
@@ -206,7 +221,30 @@ def test_marker_uturn_reuses_uturn_without_extra_turn_beep():
     print("marker uturn no extra beep ok")
 
 
+def test_beep_marker_uses_existing_sound_file_before_fallback():
+    hw = FakeSoundHw()
+    handle = tempfile.NamedTemporaryFile(delete=False)
+    handle.close()
+    missing = handle.name + ".missing"
+    original = MARKER_AUDIO_FILES["purple"]
+    MARKER_AUDIO_FILES["purple"] = (missing, handle.name)
+    try:
+        result = beep_marker(hw, "purple")
+    finally:
+        MARKER_AUDIO_FILES["purple"] = original
+        os.unlink(handle.name)
+
+    assert result["ok"] is True
+    assert result["method"] == "play_file"
+    assert result["path"] == handle.name
+    assert missing in result["skipped"]
+    assert hw._sound.played == [(handle.name, 100)]
+    assert hw.beep_count == 0
+    print("beep_marker existing file ok")
+
+
 if __name__ == "__main__":
     test_marker_candidate_tracker_confirms_immediately()
     test_purple_rgb_and_red_color_code_are_markers()
     test_marker_uturn_reuses_uturn_without_extra_turn_beep()
+    test_beep_marker_uses_existing_sound_file_before_fallback()

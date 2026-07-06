@@ -49,6 +49,13 @@ from lib.shared_params import SharedParams                       # noqa: E402
 from lib.telemetry import Telemetry                               # noqa: E402
 from lib.decision_log import DecisionLog                          # noqa: E402
 from lib.tuning_server import TuningServer                        # noqa: E402
+from lib.params_view import ParamsView                            # noqa: E402 (2026-07-06 lib 로 이동)
+from lib.seq_tokens import (                                       # noqa: E402 (2026-07-06 lib 로 이동)
+    TOKEN_REASON,
+    TOKEN_TO_CMD,
+    VALID_TOKENS,
+    parse_seq,
+)
 from stages.stage3v2_linetrace_branch import (                    # noqa: E402
     ADVANCE_SPEED,
     BRANCH_COOLDOWN_MS,
@@ -154,60 +161,12 @@ ACTIONS = [
 ]
 
 
-class ParamsView(object):
-    """라이브 SharedParams + 하위 스테이지 확정 상수를 합쳐 보이는 읽기 전용 뷰.
-
-    _run_turn/pd_step/read_marker_at_rest 는 kp/turn_speed/마커값 등을 snapshot 에서
-    기대하므로, 확정값을 라이브로 노출하지 않으면서 같은 인터페이스(snapshot/rev)를
-    유지하기 위한 어댑터다. 라이브 값이 확정값과 겹치면 라이브가 이긴다(현재 겹침 없음).
-    """
-
-    def __init__(self, shared, confirmed):
-        self._shared = shared
-        self._confirmed = dict(confirmed)
-
-    def snapshot(self):
-        snap = dict(self._confirmed)
-        snap.update(self._shared.snapshot())
-        return snap
-
-    def rev(self):
-        return self._shared.rev()
-
-
 # =====================================================================
 # 판단층 (순수, ev3dev2/시간/모터 없음) — PC 테스트/replay 가능
+#   ParamsView / 토큰 어휘(VALID_TOKENS/TOKEN_REASON/TOKEN_TO_CMD/parse_seq)는
+#   2026-07-06 하위 단계 분할로 lib/params_view.py, lib/seq_tokens.py 로 이동
+#   (위 import — 이 모듈 이름으로도 계속 노출된다).
 # =====================================================================
-
-VALID_TOKENS = ("L", "S", "R", "U")
-
-TOKEN_REASON = {
-    "L": "TURN_LEFT",
-    "R": "TURN_RIGHT",
-    "U": "UTURN",
-    "S": "NODE_STRAIGHT",
-}
-
-TOKEN_TO_CMD = {
-    "L": "turn_left",
-    "R": "turn_right",
-    "U": "uturn",
-}
-
-
-def parse_seq(text):
-    """시퀀스 문자열 → 토큰 리스트. 'L S R U' / 'LSRU' / 'l,s,r,u' 모두 허용.
-
-    유효 토큰(L/S/R/U) 외 문자는 ValueError.
-    """
-    tokens = []
-    for ch in text.upper():
-        if ch in (" ", ",", "\t", "\n"):
-            continue
-        if ch not in VALID_TOKENS:
-            raise ValueError("invalid sequence token: {}".format(ch))
-        tokens.append(ch)
-    return tokens
 
 
 def decide_turn_from_sequence(arrival_kind, seq, idx):

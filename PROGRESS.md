@@ -5,12 +5,16 @@
 
 ## 현재 단계
 
-**Stage 5 — 🟡 진행 중(2026-07-06 코드 작성 + PC 검증 완료, 실기 검증 필요).**
-`stages/stage5_integration.py` 가 stage3v2(bits+PD 라인추종+분기 탱크회전)와
-stage4 reflected(보라/빨강 색 마커 판정) 확정 코드를 미수정 import 로 재사용하며,
-노드마다 **시퀀스 토큰(L/S/R/U)을 소비**해 코스를 통과한다. 색 마커(LEAF)는 기록 후
-강제 U턴(`LEAF_FORCE_UTURN`). 실기 절차는 아래 "Stage 5 실기 검증 필요" 참조.
-(Stage 4 는 2026-07-03 실기 Done — `stage4_clolor_reflected.py` + 로컬 config 미러.)
+**Stage 5 — 🟡 진행 중, 하위 단계 분할로 재편(2026-07-06).**
+통합 1방(`stages/stage5_integration.py`)은 실기에서 제대로 동작하지 않았고 신규
+변수가 많아 디버깅이 안 됐다(사용자 판단). **5-1(고정 지시 회전) → 5-2(111 노드
+종류 구분) → 5-3(시퀀스 소비) → 5-4(LEAF+전체 코스 = Stage 5 Done)** 로 쪼개
+하위 단계마다 신규 기능 하나씩 실기 Done 후 진행한다 — 계획:
+[docs/specs/stage5_substages.md](docs/specs/stage5_substages.md).
+현재: **5-1 코드 작성 + PC 검증 완료(`stages/stage5_1_fixed_turn.py`), 실기 검증
+필요** — 아래 "Stage 5-1 실기 검증 필요" 참조. `stage5_integration.py` 는 5-4 참조
+구현으로 보존. 속도·회전 factor 라이브 params 는 하위 단계 내내 대시보드에 유지
+(사용자 결정).
 
 ## 단계 상태판
 
@@ -21,7 +25,7 @@ stage4 reflected(보라/빨강 색 마커 판정) 확정 코드를 미수정 imp
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
 | Stage 4 색상코드 노드 판정 | 🟢 실기 Done | **2026-07-03 사용자 확인.** `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. 브릭 `robotctl save` 완료, 로컬 `config/stage4_clolor_reflected.json` 미러링. `stage4v2_color_follow.py` 는 보존하되 공식 Done 트랙은 reflected 쪽이다 |
-| Stage 5 통합(트레이싱+회전) | 🟡 진행 중 | **2026-07-06 코드 작성 + PC 검증 완료(claude), 실기 검증 필요.** `stages/stage5_integration.py --seq "L S R U"` — stage3v2/stage4 reflected 위에 시퀀스 소비 회전 + LEAF(색 마커) 강제 U턴. 라이브 3개: `base_speed`/`branch_advance_mm`/`straight_nudge_mm` |
+| Stage 5 통합(트레이싱+회전) | 🟡 진행 중 | **2026-07-06 하위 단계 분할(5-1~5-4) — [stage5_substages.md](docs/specs/stage5_substages.md).** 통합 1방(`stage5_integration.py`)은 실기 디버깅 불가 → 5-4 참조 구현으로 보존. **5-1 `stage5_1_fixed_turn.py` 코드 작성 + PC 검증 완료(claude), 실기 검증 필요.** 라이브 5개: `base_speed`/`turn_speed`/`turn_90_factor`(상시 노출, 사용자 결정)/`branch_advance_mm`/`straight_nudge_mm` |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
 
@@ -50,9 +54,16 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
-- [ ] **Stage 5 실기 검증** — 아래 "Stage 5 실기 검증 필요" 절차대로 브릭에서 확인 후
-      Done 처리. 보정은 라이브 3개(`base_speed`/`branch_advance_mm`/`straight_nudge_mm`)만,
-      한 번에 하나.
+- [ ] **Stage 5-1 실기 검증** — 아래 "Stage 5-1 실기 검증 필요" 절차대로 브릭에서 확인 후
+      상태판에 기록. 보정은 라이브 5개 중 **한 번에 하나**.
+- [ ] **Stage 5-2 착수(5-1 실기 Done 후)** — 111 십자 vs 110/011 T자 노드 종류 구분
+      (로그만, 행동은 5-1 그대로). 착수 시
+      [stage5_substages.md](docs/specs/stage5_substages.md) §3 을 명세로 구체화
+      (110↔111 전환 이력 규칙은 실기 기록 replay 로 정한다).
+- [ ] ~~**Stage 5 실기 검증(통합 1방)**~~ — **대체됨(2026-07-06, 하위 단계 분할)**: 아래
+      "Stage 5 실기 검증 필요" 절차는 **5-4 시점** 절차로 남긴다. 5-1~5-3 실기 Done 후
+      `stage5_integration.py` 에 하위 단계에서 배운 수정(공통 라이브 params 복원 등)을
+      반영해 진행한다.
 - [x] **Stage 5 착수** — Stage 3 v2(bits+PD 라인추종+분기 탱크회전)와 Stage 4 reflected
       색상 노드 판정/자동 U턴 확정값을 기반으로 통합 방향 시퀀스·노드 종류 구분을 설계한다.
       → 2026-07-06 코드 작성 + PC 검증 완료(claude, 아래 작업 로그).
@@ -124,7 +135,29 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       `lib/hardware.py`(좌/우 반사광 + enc_avg 추가만), `tests/test_stage3_logic.py`. [claude]
 - [x] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local` — 2026-07-02 접속 확인.
 
-### Stage 5 실기 검증 필요 (다음에 브릭에서 할 일)
+### Stage 5-1 실기 검증 필요 (다음에 브릭에서 할 일)
+
+전제: Stage 1~4 실기 Done. 새로 검증하는 건 **"감지 방향과 무관하게 지시된 회전 실행"**
+하나뿐. Done 기준: [stage5_substages.md](docs/specs/stage5_substages.md) §2.
+
+1. **회전 단독 확인**: `robotctl do turn_left`/`turn_right`/`uturn` — 각 회전이 정상인지.
+   틀리면 Stage 2/3 값 문제 — 여기서 안 고치고 해당 스테이지로 돌아간다.
+2. **감지 방향대로(기준선)**: 좌 분기 코스에서 `--turn L` — stage3v2 Done 거동과 같은지.
+   같지 않으면 5-1 연결부(고정 지시 배선) 버그 — param 만지지 말고 코드/로그부터.
+3. **감지 반대 방향**: 같은 좌 분기에서 `do set_turn turn=R` 후 우회전으로 다음 선
+   재포착 확인. 우 분기에서 `turn=L` 도 확인. 너무 일찍 돌면 `branch_advance_mm` ↑,
+   지나쳐 돌면 ↓.
+4. **U턴**: 분기에서 `turn=U` — 180도 후 온 길 재포착. 전진이 필요해 보이면
+   `UTURN_ADVANCE_MM`(파일 상수 0) 라이브 승격을 그때 검토.
+5. **직진 통과(S)**: 십자/T 에서 `turn=S` — 분기를 벗어나 계속 추종. 분기를 못 벗어나
+   재감지하면 `straight_nudge_mm` ↑, (5-1 은 모든 노드 같은 동작이라 다음 노드에서 또 S —
+   코스는 짧게). 재감지 억제는 BRANCH_COOLDOWN_MS 1500ms 상수도 겹침.
+6. **로그 확인**: 매 노드 events 에서 `BRANCH_*.bits`(감지) vs `TURN_*.selected`
+   (rule=FIXED_TURN, 실행) 비교 — 감지 문제/회전 문제를 가른 뒤에만 param 을 만진다.
+7. **Done**: 위 2~5 각각 반복 재현 → `robotctl save` + 로컬 `config/stage5_1_fixed_turn.json`
+   미러 + 이 파일 상태판 갱신 → 5-2 착수 가능.
+
+### Stage 5 실기 검증 필요 — **5-4 시점 절차로 보류(2026-07-06 분할)** (다음에 브릭에서 할 일)
 
 전제: Stage 1~4 실기 Done. 통합에서 새로 맞추는 건 연결부뿐(명세 §7 정신, param 이름은 v2 대응물).
 
@@ -234,6 +267,37 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-06 — Stage 5 하위 단계 분할 + 5-1 고정 지시 회전 구현 (Agent: claude)
+- **요청(사용자)**: 통합 1방 stage5(토큰 소비 구조)는 너무 복잡해 실기 디버깅이 안 되고
+  제대로 동작하지 않음. 분기 구분/우회전/111 판단처럼 한 번에 하나씩 업그레이드하는
+  하위 단계(5-1, 5-2, …)로 나누고, 대시보드에 속도·회전 factor 는 계속 남겨 둘 것.
+  md 먼저 만들고 구현.
+- **분할 계획 문서(신규, 먼저 커밋)**: [docs/specs/stage5_substages.md](docs/specs/stage5_substages.md)
+  — 5-1 고정 지시 회전 → 5-2 111 노드 종류 구분(로그만) → 5-3 시퀀스 소비(JCT만) →
+  5-4 LEAF+전체 코스(=Stage 5 Done, `stage5_integration.py` 재활용). 하위 단계마다
+  신규 기능 1개, 공통 라이브 3개(`base_speed`/`turn_speed`/`turn_90_factor`)는 상시
+  노출(사용자 결정 — stage5_integration 은 CONFIRMED 로 묻었었음). STAGES.md Stage 5
+  절/specs README 에 분할 반영.
+- **공용화(lib)**: `lib/seq_tokens.py`(L/S/R/U 토큰 어휘 + `parse_seq`/`parse_token`),
+  `lib/params_view.py`(ParamsView) 신설 — stage5_integration 의 정의를 이동하고 그쪽은
+  import 재노출로 교체(동작/테스트 인터페이스 불변). 하위 단계끼리 복붙 금지 대응.
+- **Stage 5-1 구현(신규)**: `stages/stage5_1_fixed_turn.py --turn R`.
+  - 재사용(미수정 import): stage3v2 라인추종/분기 확정/전진/탱크 회전 전부.
+  - 새 것 딱 하나: 분기 확정 시 감지 방향이 아니라 **고정 지시 토큰 1개**(L/R/U/S) 실행.
+    시퀀스 상태 없음(모든 노드 같은 동작). `do set_turn turn=L` 로 재배포 없이 교체
+    (`TURN_SET` — DECISIONS.md 카탈로그 추가, TURN_*/NODE_STRAIGHT 행에 rule=FIXED_TURN
+    주석). S 는 `straight_nudge_mm` 전진으로 분기 통과(5-3 S 토큰 연결부 선행 검증).
+  - 라이브 5개: `base_speed`(17)/`turn_speed`(6)/`turn_90_factor`(0.66)/
+    `branch_advance_mm`(30)/`straight_nudge_mm`(60). `kp`(0.22)/`branch_confirm_count`(2)
+    는 CONFIRMED 파일 상수. telemetry 에 `fixed_turn` 필드.
+  - 판단층 순수: `decide_fixed_turn(detected, token)` + replay 어댑터
+    `stages.stage5_1_fixed_turn:decide_fixed`(감지↔지시 불일치를 detail 로 재연).
+- **PC 검증(전부 통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  신규 `tests/test_stage5_1_logic.py` 6건(토큰 파싱/reason 매핑/감지 무시/불량 토큰/
+  params 메타(공통 3개 라이브 유지 확인)/replay 고정 지시), 기존 stage1~5 테스트 전부
+  회귀 통과(stage5_integration 재노출 인터페이스 포함).
+- **실기 미검증** — 위 "Stage 5-1 실기 검증 필요" 절차대로 브릭에서 확인 필요.
 
 ### 2026-07-06 — Stage 4 사운드 재생/이벤트 로그 수정 (Agent: codex)
 - **문제 확인**: 브릭에서 `stage4_clolor_reflected.py` 는 실행 중이고 8765 서버도 열려 있었지만,

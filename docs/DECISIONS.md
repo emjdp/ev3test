@@ -29,8 +29,9 @@
 |---|---|---|
 | `LINE_FOLLOW` | 라인추종 중(throttle) | reflect, bits, error, turn |
 | `BRANCH_LEFT` / `BRANCH_RIGHT` | **Stage 3(공식, bits 트랙)**: 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
-| `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유). **Stage 5 는 시퀀스 소비 판단(rule=FROM_SEQUENCE, node_index/selected/bits/detected)을 이 코드로 먼저 남기고, 회전 실행 기록(Stage 2 경유)이 한 번 더 남는다** | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 시퀀스 판단은 node_index, selected, rule, bits, detected) |
-| `NODE_STRAIGHT` | **Stage 5**: 시퀀스 S 토큰 — 분기를 회전 없이 직진 통과(`straight_nudge_mm` 전진) | node_index, selected, rule, bits, detected |
+| `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유). **Stage 5 는 시퀀스 소비 판단(rule=FROM_SEQUENCE, node_index/selected/bits/detected)을 이 코드로 먼저 남기고, 회전 실행 기록(Stage 2 경유)이 한 번 더 남는다. Stage 5-1 은 고정 지시 판단(rule=FIXED_TURN, selected/detected/bits)이 같은 자리** | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 시퀀스 판단은 node_index, selected, rule, bits, detected) |
+| `NODE_STRAIGHT` | **Stage 5/5-1**: S 토큰/지시 — 분기를 회전 없이 직진 통과(`straight_nudge_mm` 전진) | node_index(5-1 은 없음), selected, rule, bits, detected |
+| `TURN_SET` | **Stage 5-1**: `do set_turn` 으로 고정 지시 토큰 교체(재배포 없이) | turn |
 | `LEAF_FORCE_UTURN` | **Stage 5**: 색 마커(LEAF) 도착인데 시퀀스 토큰이 U 가 아님 — 안전을 위해 강제 U턴(토큰은 소비) | node_index, forced_from, selected, marker |
 | `SEQUENCE_DONE` | **Stage 5**: 시퀀스 전부 소비(코스 통과) — 정지 후 `do set_seq` 대기 | node_index |
 | `SEQUENCE_EXHAUSTED` | **Stage 5**: 노드를 더 만났는데 시퀀스가 비어 정지 | node_index (rule 이 JCT/LEAF 도착 종류) |

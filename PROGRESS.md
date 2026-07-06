@@ -210,11 +210,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
-### 2026-07-06 — 대화 내보내기 안내 파일 재추가 (Agent: codex)
-- **요청**: `master` 브랜치에 `etc/` 폴더가 보이도록 대화 내보내기 안내를 다시 추가.
-- **반영**: Codex가 채팅 UI의 전체 원문 transcript를 직접 export 할 수 없다는 한계,
-  사용자가 직접 원문을 저장하는 방법, 현재 Stage 4 대화 요약을
-  `etc/conversation_export_guide.md`에 기록했다.
+### 2026-07-06 — Stage 4 대화 정리본 추가 (Agent: codex)
+- **요청**: 단순 대화 내보내기 안내 문서는 없애고, 사용자가 붙여준 Stage 4 대화 내용을
+  다듬어서 `etc/` 아래에 보관.
+- **반영**: `etc/conversation_export_guide.md`를 삭제하고,
+  `etc/stage4_reflected_conversation.md`에 Stage 4 reflected 색상 노드 판정 대화 흐름,
+  관련 커밋, 보라색 인식 실패 시 튜닝 기준, 최종 확정 params, 업로드/실행 명령을 정리했다.
 
 ### 2026-07-03 — Stage 4 실기 Done 확정값 저장 (Agent: codex)
 - **사용자 확인**: 아래 저장값으로 Stage 4 를 Done 처리. 브릭에서

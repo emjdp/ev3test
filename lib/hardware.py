@@ -33,6 +33,11 @@ Stage 1~4 가 쓰지 않으므로 Stage 3 좌/우 센서와 같은 지연 오픈
   - grip_open(speed, seconds) / grip_close(speed, seconds) : 그리퍼(outC) 정/역 구동.
   - read_distance_cm()          : 초음파(in4) 거리(cm).
 
+Stage 4 v2 추가(2026-07-03): 중앙 상시 컬러 모드 트랙(stage4v2_color_follow.md)용으로
+아래 메서드를 **추가만** 한다. 기존 메서드/__init__ 불변.
+  - read_side_reflect()     : 좌/우 반사광만 — 중앙 모드를 건드리지 않는다.
+  - read_center_color_now() : 컬러 모드 유지 전제의 color 1회(전환/settle 없음).
+
 규약: 브릭 코드는 Python 3.5 안전 — f-string 금지, .format() 사용.
 """
 
@@ -183,6 +188,27 @@ class Ev3Hardware(object):
             _ = self._center.color
         return self._center.color
 
+    def _read_center_rgb_raw(self):
+        try:
+            return (self._center.value(0),
+                    self._center.value(1),
+                    self._center.value(2))
+        except Exception:
+            raw = self._center.raw
+            return (raw[0], raw[1], raw[2])
+
+    def read_center_rgb(self, settle_s, dummy_reads):
+        """Switch in2 to RGB-RAW and return one (red, green, blue) sample."""
+        try:
+            self._center.mode = "RGB-RAW"
+        except Exception:
+            pass
+        if settle_s > 0:
+            time.sleep(settle_s)
+        for _i in range(int(dummy_reads)):
+            self._read_center_rgb_raw()
+        return self._read_center_rgb_raw()
+
     def restore_reflect_mode(self, settle_s):
         """컬러 모드 → 반사광 모드 복귀 + settle(라인추종 재개 전 안정화)."""
         _ = self._center.reflected_light_intensity  # 모드 복귀 트리거
@@ -223,3 +249,23 @@ class Ev3Hardware(object):
         """in4 초음파 거리(cm). 소스통 근접 파지 트리거용."""
         self._ensure_ultrasonic()
         return self._ultrasonic.distance_centimeters
+
+    # --- Stage 4 v2 추가(중앙 상시 컬러 모드 트랙, stage4v2_color_follow.md §2). 위 불변. ---
+
+    def read_side_reflect(self):
+        """좌/우 반사광만 (l, r). 중앙센서를 건드리지 않는다.
+
+        read_reflect() 는 중앙 반사광 속성을 읽어 중앙 모드를 COL-REFLECT 로 되돌리므로
+        중앙 상시 컬러 모드 트랙(Stage 4 v2)에서는 반드시 이 메서드를 쓴다.
+        """
+        self._ensure_side_sensors()
+        return (self._left_sensor.reflected_light_intensity,
+                self._right_sensor.reflected_light_intensity)
+
+    def read_center_color_now(self):
+        """in2 color 1회 — 전환/settle/더미읽기 없음.
+
+        시작 시 read_center_color() 로 컬러 모드에 들어간 뒤 매 루프 호출용.
+        ev3dev2 는 모드가 같으면 재전환하지 않으므로 추가 비용이 없다.
+        """
+        return self._center.color

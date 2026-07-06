@@ -235,6 +235,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-06 — inchul Stage 4 사운드 변경 master 병합 (Agent: codex)
+- `origin/inchul` 의 `8f66d29 Stage4: 색상 마커 사운드 재생 반영` 을 `master` 로 병합했다.
+  변경 파일은 `stages/stage4_clolor_reflected.py`, `stages/stage4_color.py` 이며 Stage 5
+  통합 파일은 master 쪽 변경을 유지했다.
+- PC 검증: `python3 -m py_compile stages/*.py` 통과.
+
 ### 2026-07-06 — Stage 5 통합 코드 작성 + PC 검증 (Agent: claude)
 - **요청**: Stage 5 구현. 기반은 `stage4_clolor_reflected.py`(최종 Stage 4 코드).
 - **설계 결정(명세 §11 2026-07-02 메모의 미결 사항 확정)**: 명세 원문(decide_line3/

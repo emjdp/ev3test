@@ -20,7 +20,7 @@
 | Stage 1 기초 라인트레이싱 | 🟢 실기 Done | 2026-06-30 **사용자 판단으로 Done 처리**. 중앙센서 반사광 검정 0/흰색 10, target_reflect 6, base_speed 20 |
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
-| Stage 4 색상코드 노드 판정 | 🟢 실기 Done | **2026-07-03 사용자 확인.** `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. 브릭 `robotctl save` 완료, 로컬 `config/stage4_clolor_reflected.json` 미러링 |
+| Stage 4 색상코드 노드 판정 | 🟢 실기 Done | **2026-07-03 사용자 확인.** `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. 브릭 `robotctl save` 완료, 로컬 `config/stage4_clolor_reflected.json` 미러링. `stage4v2_color_follow.py` 는 보존하되 공식 Done 트랙은 reflected 쪽이다 |
 | Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
@@ -50,7 +50,22 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
-- [ ] **Stage 4 착수: 브릿지 후보 A/B/C/D 중 채택 결정** — 명세 4건(2026-07-02, DRAFT):
+- [ ] **Stage 5 착수** — Stage 3 v2(bits+PD 라인추종+분기 탱크회전)와 Stage 4 reflected
+      색상 노드 판정/자동 U턴 확정값을 기반으로 통합 방향 시퀀스·노드 종류 구분을 설계한다.
+- [ ] ~~**Stage 4 v2 실기 검증(2026-07-03 코드 준비됨, claude)**~~ — **대체됨(2026-07-03)**:
+      공식 Stage 4 Done 트랙은 `stage4_clolor_reflected.py` 다. v2 파일/명세는 보존하되
+      필요 시 참고 후보로만 본다. 원래 절차:
+      명세
+      [stage4v2_color_follow.md](docs/specs/stage4v2_color_follow.md) §7 순서대로:
+      ① 정지 실측(선결): 검은 선/흰 바닥/각 마커 위에서 `robotctl do read_color` **5회씩**
+      → 색코드 표를 이 파일에 기록(검은 선이 안정적으로 1 인지가 go/no-go 핵심).
+      ② 실측값으로 `start/checkpoint/goal_color` set. ③ 마커 없는 구간에서 자동 추종 확인
+      (컬러 모드가 추종/루프 주기를 깨지 않는지 — telemetry `t_ms` 간격). ④ 마커 통과하며
+      `COLOR_READ(driving)`/`NODE_IS_*` 재현, 오탐이면 `color_confirm_count` ↑ / 놓치면 ↓.
+      **no-go 면 v2 폐기 기록 후 후보 C 로 회귀.** 분기판단은 v2 성립 후 2단계(명세 §11).
+- [ ] ~~**Stage 4 착수: 브릿지 후보 A/B/C/D 중 채택 결정**~~ — **보류(2026-07-03, 사용자
+      방향 전환)**: v2(중앙 상시 컬러 모드)가 우선 트랙이 됨. v2 실기 no-go 시에만 부활
+      (그 경우 기본 권장은 C). 명세 4건(2026-07-02, DRAFT):
       [A 반사광 단독](docs/specs/stage4a_reflect_only.md) /
       [B 000 의심지점+후진 컬러](docs/specs/stage4b_suspect_backup_color.md) /
       [C 반사광 게이트+컬러 확정(기본 권장)](docs/specs/stage4c_reflect_gate_color.md) /
@@ -61,11 +76,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
       전환 벤치 go/no-go 관문을 먼저 통과해야 구현 착수 가능. 2026-07-03 중앙 반사광 센서
       1차 단회 실측값은 아래 작업 로그에 기록(5회 반복+컬러값은 아직 필요 —
       `stage4d_mode_interleave.py` 의 `do read_reflect`/`do read_color` 로 측정 가능해짐).
-- [ ] **Stage 4-D 관문 실기 실행(코드는 준비됨, 2026-07-03 claude)**:
-      브릭에서 `python3 stages/stage4d_mode_interleave.py` → `robotctl do bench_toggle`.
-      §7-0b 절차 — `switch_settle_ms` 0 부터 +20 씩 올리며 색이 유효(0 없음)한 최소 settle
-      을 찾고, 그때 `BENCH_TOGGLE` 의 `max_ms > 80(BLIND_BUDGET_MS)` 면 **D 폐기 기록 후
-      C 로 전환**. go 면 2단계(교대 루프 본체) 구현 착수. 결과를 이 파일에 기록.
+- [ ] ~~**Stage 4-D 관문 실기 실행(코드는 준비됨, 2026-07-03 claude)**~~ — **보류
+      (2026-07-03, 사용자 방향 전환)**: v2 는 모드 전환이 0회라 전환 벤치 자체가 무의미.
+      v2 no-go → C 회귀 시에도 D 관문은 필요 없음(C 는 노드에서 정지 후 1회 전환).
+      원래 절차: 브릭에서 `python3 stages/stage4d_mode_interleave.py` → `robotctl do
+      bench_toggle`, §7-0b — `switch_settle_ms` 0 부터 +20 씩 올리며 색이 유효한 최소
+      settle 탐색, `max_ms > 80` 이면 D 폐기.
 - [ ] **Stage 3 v3 후보 위치(anchor) 보정 아이디어 보류** — 메모:
       [docs/specs/stage3v3_anchor_pivot_idea.md](docs/specs/stage3v3_anchor_pivot_idea.md).
       Stage 3 v2 Done 은 유지하되, v2 의 `turn_90_factor=0.66` 이
@@ -285,6 +301,85 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
   `python3 tests/test_stage4_clolor_reflected_logic.py`, `python3 tests/test_stage3v2_logic.py` 통과.
 - **주의**: 브릭 실기 검증 필요. 색 마커 위에서 자동 U턴 후 같은 마커를 다시 읽지 않는지
   `marker_cooldown_ms`(기본 1000ms)를 함께 본다.
+
+### 2026-07-03 — ev3sess 전역 런처 설치: 스크립트 없는 브랜치에서도 실행 (Agent: codex)
+- **요청**: 다른 브랜치로 전환하면 `tools/ev3_session.sh` 파일이 없어질 수 있으니, 그런
+  브랜치에서도 같은 명령을 계속 쓸 수 있게 개선.
+- **신규**: `tools/install_ev3sess.sh`.
+  - `~/.local/bin/ev3sess` 전역 런처 설치.
+  - `~/.local/share/ev3test/ev3_session.sh` 에 현재 세션 스크립트 캐시본 저장.
+  - 실행 시 현재 repo(`/home/emjdp/dev/ev3test`)에 `tools/ev3_session.sh` 가 있으면 그것을
+    우선 사용하고, 없으면 캐시본을 `EV3TEST_REPO=/home/emjdp/dev/ev3test` 로 실행.
+- **수정**: `tools/ev3_session.sh`.
+  - `EV3TEST_REPO` 환경변수로 repo root 를 지정할 수 있게 함(캐시본 실행용).
+  - 업로드 glob 을 nullglob 배열로 처리해, 스크립트 없는 브랜치처럼 `tools/*.sh` 가 없어도
+    `scp` 가 깨지지 않게 함.
+  - help 문구를 branch-safe 런처 설치 기준으로 갱신.
+- **로컬 설치 완료**: `tools/install_ev3sess.sh` 실행으로 `/home/emjdp/.local/bin/ev3sess`
+  설치 완료.
+- **검증**: `bash -n`, 현재 repo 기준 `ev3sess --dry-run --terminal none run_maze`, 그리고
+  `tools/ev3_session.sh` 가 없는 임시 repo 를 `EV3TEST_REPO` 로 지정한 fallback dry-run 통과.
+  실제 브릭 실행은 실기 때 확인 필요.
+
+### 2026-07-03 — ev3_session 어디서든 실행 + stage 위치인자 지원 (Agent: codex)
+- **요청**: `/home/emjdp/dev/ev3test` 디렉토리에 들어가지 않고도 alias/PATH 단축어로 실행하고,
+  명령어 뒤에 `run_maze` 같은 `stages/` 파일명만 입력하면 자동 업로드+실행되게 개선.
+- **수정**: `tools/ev3_session.sh`.
+  - symlink 로 실행해도 실제 스크립트 위치를 따라가 repo root 를 찾도록 변경.
+  - `--stage` 없이 첫 번째 위치 인자를 stage 이름/경로로 받음
+    (`ev3sess run_maze`, `ev3sess stage4v2_color_follow`, `ev3sess stages/stage4_color.py`).
+  - help 에 추천 alias 예시 추가:
+    `alias ev3sess='/home/emjdp/dev/ev3test/tools/ev3_session.sh --terminal tmux'`.
+- **검증**: `bash -n`, help 출력, `/tmp` 에서 절대경로 dry-run, `/tmp` symlink dry-run 통과.
+  실제 브릭 실행은 실기 때 확인 필요.
+
+### 2026-07-03 — Stage 4 v2 명세+구현: 중앙 상시 컬러 모드 라인추종 (Agent: claude)
+- **요청(사용자 방향 전환)**: "라인트레이싱할 때 가운데 센서는 컬러 모드, 나머지는 반사광
+  모드로 하고, 이걸로 나중에 분기판단까지" — 반사광↔컬러 전환을 브릿지하던 A~D 대신
+  **전환 자체를 없애는** 접근. Stage 4 v2 로 명세+코드까지 구현.
+- **성립 근거(코드 사실)**: stage3v2 의 PD 조향(`pd_step`)은 `error = raw[2]-raw[0]` 로
+  좌/우 반사광만 쓰고 **중앙 raw 를 조향에 쓰지 않는다**(중앙은 bits/000 감속뿐) → 중앙을
+  컬러 모드로 바꿔도 Stage 3 확정 조향 수식/게인(kp 0.22, base_speed 17 시드)이 그대로
+  성립. 중앙 흑백 정보는 컬러코드(검정=1→bit1, 흰색=6→bit0)로 대체. 실패 #2(빈 바닥
+  오독)는 구조적으로 해소(바닥=흰색 6 은 마커색이 될 수 없음).
+- **신규**: [docs/specs/stage4v2_color_follow.md](docs/specs/stage4v2_color_follow.md)
+  (DRAFT, 11절 — §0 에 A~D 와의 관계/성립 조건 3개/no-go 시 C 회귀 명시),
+  `stages/stage4v2_color_follow.py` — 좌/우 반사광 PD 추종(stage3v2 `PdController`/THR
+  import, 미수정 재사용) + 주행 중 `marker_confirm_step`(같은 마커색 연속 N회+쿨다운,
+  제어 루프·replay 공유 순수 스텝) → `COLOR_READ(driving)`+`NODE_IS_*` → 주행 계속.
+  `do read_color`(정지 다수결 판독, 비차단 큐), 시작 자기검증 `validate_node_colors`,
+  `decide_marker` replay 어댑터. 라이브 6개: `kp`/`base_speed`/`color_confirm_count`/
+  `start_color`/`checkpoint_color`/`goal_color`(색코드 MAX_STEP=7 — 라벨이라 한 번에 변경).
+- **`lib/hardware.py` 추가만(기존 불변)**: `read_side_reflect()`(좌/우만 — `read_reflect()`
+  는 중앙 모드를 반사광으로 되돌리므로 이 트랙에서 금지, 명세 §8 함정) /
+  `read_center_color_now()`(모드 유지 전제 color 1회).
+- **문서**: DECISIONS.md 에 `COLOR_MODE_ENTER` 추가 + `COLOR_READ`/`NODE_IS_*` 에 v2 주석.
+  specs/README 표 1줄. PROGRESS 상태판/TODO 갱신(A~D 채택 결정·D 관문 실기는 **보류** —
+  v2 no-go 시 C 로 회귀. 분기판단은 v2 의 2단계 — 마커가 3센서 폭을 덮으면 111 오탐
+  위험을 §11 에 기록).
+- **PC 검증(전부 통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  신규 `tests/test_stage4v2_logic.py` 13건(bit 변환/분류/자기검증/confirm·쿨다운/replay
+  재연/정지 판독 다수결/**pd_step 가운데값 불변 회귀**/params 메타), 기존 stage1~3v2·4d
+  테스트 회귀, replay 스모크(`--decider stages.stage4v2_color_follow:decide_marker` →
+  합성 파랑 5틱 기록에서 t=60 `NODE_IS_CHECKPOINT` 확정 확인). **실기 미검증.**
+- **다음**: 위 TODO "Stage 4 v2 실기 검증" — §7 ① 정지 실측(각 위치 `do read_color` 5회)
+  표부터. 검은 선 color==1 안정성이 go/no-go 핵심.
+
+### 2026-07-03 — EV3 실기 세션 일괄 실행 스크립트 추가 (Agent: codex)
+- **요청**: 매번 `scp` 업로드, SSH 포트포워딩, telemetry watcher, dashboard, robotctl 터미널을
+  따로 여는 반복 작업을 한 번에 실행하는 쉘 파일 작성. `ssh ev3` 로 접속 가능하다는 사용자
+  환경을 기본값으로 반영.
+- **신규**: `tools/ev3_session.sh`.
+  - 기본 실행 대상은 현재 실기 대기 중인 `stages/stage4d_mode_interleave.py`.
+  - 실행 전 `ssh ev3 'mkdir -p ~/ev3test/...'` 후 `scp` 로 `stages/*.py`, `lib/*.py`,
+    `tools/*.py`, `tools/*.sh`, `config/*.json` 을 브릭 `~/ev3test/` 아래에 업로드.
+  - 여러 터미널을 열어 브릭 stage 실행, `ssh -N -L 8765:127.0.0.1:8765 ev3` 터널,
+    `tools/telemetry_watcher.py`, `tools/dashboard.py`, robotctl 대기 셸을 각각 띄움.
+  - `--stage`, `--host`, `--remote-dir`, `--port`, `--no-upload`, `--terminal tmux`,
+    `--dry-run` 등 옵션 지원. GUI 터미널이 없으면 tmux 사용 가능.
+- **검증**: `bash -n tools/ev3_session.sh`, `tools/ev3_session.sh --help`,
+  `--no-upload --dry-run --terminal none`, `--no-upload --dry-run --terminal tmux` 로 로컬 검증.
+  실제 브릭 업로드/실행은 사용자가 실기 때 확인 필요.
 
 ### 2026-07-03 — 추가 실행 파일 커밋/푸시 처리 (Agent: codex)
 - **사용자 요청**: 현재 추가된 파일까지 커밋·푸시.

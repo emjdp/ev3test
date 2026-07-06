@@ -44,6 +44,10 @@
 | `DEAD_END` | `run_maze.py`: 000(선/색 없음) 또는 전진 후에도 나갈 곳 없음 → 유턴 복귀 | bits, color |
 | `VISIT_NODE` | `run_maze.py`: 파랑(방문 노드) 재감지 → 즉시 유턴, returning 세팅 | color, visits |
 | `GRAB` | `run_maze.py`: 초음파 근접(grab_dist_cm 이내) → 그리퍼 1회 파지 | grab_dist_cm, grip_speed |
+| `GOAL_RETURN_START` | `run_maze_v3.py`: 도착 시퀀스(전진→그리퍼 오픈→후진→유턴) 완료, 경로 기억 복귀 시작 | path, path_len, goal_advance_mm |
+| `RETURN_STEP` | `run_maze_v3.py`: 복귀 중 노드에서 기록된 이동을 pop + 좌우 반전해 실행 | recorded, inverted, bits, color, path_left |
+| `RETURN_FALLBACK` | `run_maze_v3.py`: 복귀 replay 가 깨짐(STACK_EMPTY/PATH_MISMATCH/DEAD_END_ON_RETURN) → 즉석 탐색(우>좌>직)으로 폴백 | recorded, inverted, bits, color, path_left |
+| `NODE_IS_HOME` | `run_maze_v3.py`: 복귀 중 노랑(출발지) 재감지 = 집 도착, 정지+종료 | color, path_left |
 
 > **(2026-07-02) 공식 Stage 3 는 bits 트랙(`stages/stage3v2_linetrace_branch.py`)이다.** 좌/중/우
 > 3센서 raw 차 기반 PD 로 추종하고, 분기 확정은 `total`/시간 지속이 아니라 **연속 확정 횟수

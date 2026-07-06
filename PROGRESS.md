@@ -210,6 +210,33 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-06 — run_maze_v3 신규: 왕복 완주 — 경로 기억 복귀 (v2 유지) (Agent: claude)
+- **실기 확인(사용자)**: v2 마커 색 재배치로 가짜 유턴 해결, 편도 주행 동작 확인.
+  node_advance_mm 는 대시보드로 조절(이미 라이브).
+- **사용자 요청**: 편도 → 왕복. 초록(도착) 찍으면 ① 조금 더 직진해 그리퍼 오픈
+  (물체 내려놓기) ② 후진 후 유턴 ③ 복귀는 3안(동일 탐색/경로 기억/최적 경로) 중
+  **2안: 왔던 길 기억했다가 그대로 되짚기** 채택.
+- **반영 (`stages/run_maze_v3.py` 신규 — v1/v2 미수정, v2 에서 import 재사용)**:
+  - 경로 기억(순수 판단층): 노드/커브 이동을 "L"/"R"/"S" 로 기록, 막다른길·방문
+    마커 유턴은 "U". `push_move` 가 [X,U,Z] 를 회전각 합성으로 즉시 접어
+    (L,U,S=R 등 — 미로 되짚기 고전 규칙과 일치, 연쇄 접기 포함) path 에는
+    출발→도착 직행 경로만 남긴다.
+  - 도착 시퀀스 `goal_sequence`: 정지 → `goal_advance_mm`(신규 라이브 param,
+    시드 50mm ★) 전진 → 그리퍼 오픈 → 같은 거리 후진 → 유턴 → home 단계.
+  - 복귀 replay `handle_node_home`: path 를 뒤에서부터 pop + 좌우 반전(L↔R)
+    실행. 안전장치 — pop 이동이 현재 노드에서 불가능(PATH_MISMATCH)하거나
+    path 소진(STACK_EMPTY) 시 즉석 탐색(우>좌>직) 폴백. 복귀 중 초록/빨강
+    무시, 초음파 파지 비활성. 노랑 재감지 = 집 도착(NODE_IS_HOME, 비프 2회).
+  - 라이브 params 12개(v2 11 + goal_advance_mm). reason_code 4개 신설
+    (GOAL_RETURN_START/RETURN_STEP/RETURN_FALLBACK/NODE_IS_HOME) —
+    DECISIONS.md 카탈로그에 추가.
+- **검증**: py_compile 통과. `tests/test_run_maze_v3_logic.py` 신규(합성표/접기/
+  연쇄/반전/replay 순서/params 메타 — 전부 통과) + v1/v2 테스트 회귀 통과.
+  **실기 검증 필요**: goal_advance_mm(내려놓는 위치), 복귀 replay 가 커브에서
+  1:1 로 안 맞는 코스가 있는지(RETURN_FALLBACK 로그 확인), 후진 중 라인 이탈.
+- **다음**: 실기 왕복 주행. RETURN_FALLBACK 이 자주 찍히면 노드 대응 방식 보강,
+  잘 되면 3안(최적 경로 복귀)은 다음 단계로.
+
 ### 2026-07-06 — run_maze_v2: 마커 색 재배치 — 방문 파랑→빨강, 도착 빨강→초록 (Agent: claude)
 - **실기 증상**: 라인트레이싱 중 조금 틀어지면 자꾸 180도 유턴. 원인 분석에서
   ① 000 유실→후진 복구 체인(BACKUP_NO_LINE/LOST_AGAIN_AFTER_RECOVER),

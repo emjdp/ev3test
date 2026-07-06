@@ -37,9 +37,9 @@ v1 에서 그대로 가져오는 것(import — 복붙 금지 규약):
 base_speed 시드도 PD 확정 조합(17)으로 맞춘다. left/right_th_steer 는 조향에서
 빠졌지만 후진 복구(line_found)의 감도로 여전히 쓰므로 라이브 유지.
 팀 대시보드 패리티(2026-07-06 요청): stage3v2/stage4 가 노출하는 회전 속도
-`turn_speed`(v1 상수 TURN_SPEED=18 시드)와 확정 손잡이 `node_confirm_ms`
-(v1 상수 120 시드)를 라이브로 추가 — 대시보드에서 팀원 스테이지와 같은
-속도/회전 손잡이를 그대로 만질 수 있다.
+`turn_speed`(팀 확정값 6 시드 — v1 상수 18 은 팀 대비 빨라 교체)와 확정 손잡이
+`node_confirm_ms`(v1 상수 120 시드)를 라이브로 추가 — 대시보드에서 팀원
+스테이지와 같은 속도/회전 손잡이를 그대로 만질 수 있다.
 
 실시간 대시보드/robotctl 사용법은 v1 과 동일(docs/LIVE_TUNING.md).
 
@@ -98,7 +98,7 @@ from stages.stage3v2_linetrace_branch import PdController            # noqa: E40
 INITIAL_PARAMS = {
     "base_speed": 17,         # 주행 속도(%). PD 확정 조합(stage3v2/stage4v2) 시드
     "kp": 0.22,               # PD 조향 게인(좌/우 raw 차) — stage3v2 실기 확정값 시드
-    "turn_speed": 18,         # 회전 속도(%) — v1 확정 상수 TURN_SPEED 시드, 라이브 개방
+    "turn_speed": 6,          # 회전 속도(%) — 팀 스테이지(stage3v2/stage4) 확정값 시드
     "node_confirm_ms": 120,   # 노드 후보 확정 시간(ms) — v1 확정 상수 시드, 라이브 개방
     "left_th_steer": 69,      # 후진 복구 line_found 감도(조향에서는 더 이상 안 씀)
     "right_th_steer": 67,

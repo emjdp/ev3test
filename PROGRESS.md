@@ -210,6 +210,13 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-06 — run_maze_v2: turn_speed 시드 18→6 (팀 확정값으로 교체) (Agent: claude)
+- **사용자 요청**: 직전 패리티 작업에서 시드를 v1 상수(18)로 뒀는데, 팀
+  스테이지(stage3v2/stage4) 확정값 6 으로 바로 맞춰 달라.
+- **반영**: `stages/run_maze_v2.py` INITIAL_PARAMS `turn_speed` 18→**6**. 코드 변경은
+  시드 한 줄(한 번에 변수 하나). 실기에서 회전이 느리면 대시보드로 올려가며 확인.
+- **검증**: py_compile + v2 판단층 테스트 통과(테스트는 시드값을 동적으로 참조).
+
 ### 2026-07-06 — run_maze_v2: 팀 대시보드 손잡이 패리티(turn_speed/node_confirm_ms 라이브) (Agent: claude)
 - **사용자 요청**: inchul/master 스테이지(stage3v2, stage4_clolor_reflected)를 돌릴 때
   대시보드에 뜨는 속도/회전 손잡이를 run_maze_v2 에서도 똑같이 만지고 싶다.

@@ -1,257 +1,197 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Stage 4 color marker detection on top of the tuned 3-sensor line tracer.
+"""Stage 4 color marker detection using the latest Stage 3 v2 line tracing.
 
 Run on EV3:
     python3 stages/stage4_color.py
 
-This file intentionally does not modify Stage 1/3 line tracing. It follows the
-same line-tracing behavior, then adds this Stage 4 experiment:
+This stage keeps the Stage 3 v2 line-tracing/branch behavior and adds a quick
+center-reflect gate for purple/brown markers:
 
-1. While following the line, watch the center reflected-light value.
-2. If it stays in the candidate range for at least marker_stable_ms, stop.
-3. Sample the marker at rest, read the center color code, and also record the
-   reflected-light average for later calibration.
-4. If brown/purple is recognized, beep immediately.
+  - purple reflect was measured near 26
+  - brown reflect was measured near 32
+  - candidate must stay in range for marker_stable_ms (default 10 ms)
+
+Reflect is only used as a candidate gate. Once the center sensor stays in that
+gate, the robot stops, switches the center sensor to color/RGB-RAW mode, reads
+the marker, restores reflected-light mode, and then continues line tracing.
+
+The EV3 color code has no purple code. Brown does have a code, so brown color
+code is trusted first. Purple/brown separation then uses RGB channel ratios.
 
 Python 3.5 compatible: no f-strings.
 """
 
 import os
 import sys
-import time
 import threading
+import time
 
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
-from lib.shared_params import SharedParams
-from lib.telemetry import Telemetry
-from lib.tuning_server import TuningServer
+from lib.shared_params import SharedParams                       # noqa: E402
+from lib.telemetry import Telemetry                               # noqa: E402
+from lib.decision_log import DecisionLog                          # noqa: E402
+from lib.tuning_server import TuningServer                        # noqa: E402
+from stages.stage3v2_linetrace_branch import (                    # noqa: E402
+    ADVANCE_SPEED,
+    BASE_PIVOT_DEG_90,
+    BASE_PIVOT_DEG_180,
+    BRANCH_COOLDOWN_MS,
+    LOOP_DELAY_MS,
+    POST_TURN_SETTLE_MS,
+    REASON_THROTTLE_S,
+    THR_CENTER,
+    THR_LEFT,
+    THR_RIGHT,
+    TURN_180_FACTOR,
+    _maybe_follow_log,
+    _run_turn,
+    _tick_stop,
+    advance_straight,
+    bits_to_str,
+    black_bits,
+    branch_confirm_step,
+    branch_side,
+    now_ms,
+    PdController,
+    pd_step,
+)
 
-
-LEFT_MOTOR_PORT = "outA"
-RIGHT_MOTOR_PORT = "outB"
-
-LEFT_SENSOR_PORT = "in1"
-CENTER_SENSOR_PORT = "in2"
-RIGHT_SENSOR_PORT = "in3"
-
-TURN_SPEED = 18
-TURN_90_FACTOR = 0.9
-TURN_180_FACTOR = 0.8
-POST_TURN_SETTLE_MS = 120
-
-BASE_PIVOT_DEG_90 = 193.0
-BASE_PIVOT_DEG_180 = BASE_PIVOT_DEG_90 * 2.0
 
 COLOR_NONE = 0
-COLOR_BLACK = 1
-COLOR_BLUE = 2
-COLOR_GREEN = 3
-COLOR_YELLOW = 4
-COLOR_RED = 5
-COLOR_WHITE = 6
 COLOR_BROWN = 7
 
+# Seed Stage 4 with the latest committed Stage 3 v2 tuned values.
 INITIAL_PARAMS = {
-    "kp": 0.60,
-    "kd": 0.0,
-    "base_speed": 22,
-    "turn_limit": 35,
-    "thr_left": 40,
-    "thr_center": 40,
-    "thr_right": 40,
-    "turn_speed": TURN_SPEED,
-    "turn_90_factor": TURN_90_FACTOR,
-    "turn_180_factor": TURN_180_FACTOR,
-    "post_turn_settle_ms": POST_TURN_SETTLE_MS,
-    "branch_confirm_count": 4,
-    "branch_cooldown_ms": 700,
-    "loop_delay_ms": 15,
-    # Purple was measured near 26 and brown near 32. The candidate window is
-    # intentionally narrow so the color-mode read only happens around markers.
-    "marker_candidate_min": 23,
+    "kp": 0.22,
+    "base_speed": 17,
+    "turn_speed": 6,
+    "turn_90_factor": 0.66,
+    "branch_confirm_count": 2,
+    "branch_advance_mm": 30,
+    "marker_candidate_min": 24,
     "marker_candidate_max": 35,
-    "marker_stable_ms": 50,
+    "marker_stable_ms": 10,
     "marker_cooldown_ms": 1000,
-    "marker_sample_count": 7,
-    "marker_sample_delay_ms": 10,
-    "color_mode_settle_ms": 80,
-    "color_dummy_reads": 2,
-    "purple_reflect_min": 23,
-    "purple_reflect_max": 29,
-    "brown_reflect_min": 29,
-    "brown_reflect_max": 35,
+    "marker_sample_count": 3,
+    "marker_sample_delay_ms": 1,
+    "color_mode_settle_ms": 10,
+    "color_dummy_reads": 1,
+    "purple_red_ratio_min": 0.25,
+    "purple_blue_ratio_min": 0.30,
+    "purple_green_ratio_max": 0.30,
+    "brown_red_ratio_min": 0.42,
+    "brown_blue_ratio_max": 0.25,
 }
 
 PARAM_LIMITS = {
     "kp": (0.0, 3.0),
-    "kd": (0.0, 1.0),
     "base_speed": (5, 45),
-    "turn_limit": (5, 60),
-    "thr_left": (0, 100),
-    "thr_center": (0, 100),
-    "thr_right": (0, 100),
     "turn_speed": (5, 40),
     "turn_90_factor": (0.5, 2.0),
-    "turn_180_factor": (0.5, 2.0),
-    "post_turn_settle_ms": (0, 400),
     "branch_confirm_count": (1, 20),
-    "branch_cooldown_ms": (0, 3000),
-    "loop_delay_ms": (5, 50),
+    "branch_advance_mm": (0, 120),
     "marker_candidate_min": (0, 100),
     "marker_candidate_max": (0, 100),
-    "marker_stable_ms": (10, 1000),
+    "marker_stable_ms": (5, 1000),
     "marker_cooldown_ms": (0, 5000),
     "marker_sample_count": (1, 30),
     "marker_sample_delay_ms": (0, 100),
     "color_mode_settle_ms": (0, 500),
     "color_dummy_reads": (0, 10),
-    "purple_reflect_min": (0, 100),
-    "purple_reflect_max": (0, 100),
-    "brown_reflect_min": (0, 100),
-    "brown_reflect_max": (0, 100),
+    "purple_red_ratio_min": (0.0, 1.0),
+    "purple_blue_ratio_min": (0.0, 1.0),
+    "purple_green_ratio_max": (0.0, 1.0),
+    "brown_red_ratio_min": (0.0, 1.0),
+    "brown_blue_ratio_max": (0.0, 1.0),
 }
 
 MAX_STEP = {
     "kp": 0.1,
-    "kd": 0.05,
     "base_speed": 5,
-    "turn_limit": 10,
-    "thr_left": 3,
-    "thr_center": 3,
-    "thr_right": 3,
     "turn_speed": 5,
     "turn_90_factor": 0.05,
-    "turn_180_factor": 0.05,
-    "post_turn_settle_ms": 40,
     "branch_confirm_count": 2,
-    "branch_cooldown_ms": 100,
-    "loop_delay_ms": 5,
+    "branch_advance_mm": 10,
     "marker_candidate_min": 5,
     "marker_candidate_max": 5,
-    "marker_stable_ms": 20,
+    "marker_stable_ms": 10,
     "marker_cooldown_ms": 200,
     "marker_sample_count": 2,
     "marker_sample_delay_ms": 10,
     "color_mode_settle_ms": 20,
     "color_dummy_reads": 1,
-    "purple_reflect_min": 5,
-    "purple_reflect_max": 5,
-    "brown_reflect_min": 5,
-    "brown_reflect_max": 5,
+    "purple_red_ratio_min": 0.05,
+    "purple_blue_ratio_min": 0.05,
+    "purple_green_ratio_max": 0.05,
+    "brown_red_ratio_min": 0.05,
+    "brown_blue_ratio_max": 0.05,
 }
 
 UI_STEP = {
     "kp": 0.01,
-    "kd": 0.01,
     "base_speed": 1,
-    "turn_limit": 1,
-    "thr_left": 1,
-    "thr_center": 1,
-    "thr_right": 1,
     "turn_speed": 1,
     "turn_90_factor": 0.01,
-    "turn_180_factor": 0.01,
-    "post_turn_settle_ms": 10,
     "branch_confirm_count": 1,
-    "branch_cooldown_ms": 50,
-    "loop_delay_ms": 1,
+    "branch_advance_mm": 10,
     "marker_candidate_min": 1,
     "marker_candidate_max": 1,
-    "marker_stable_ms": 10,
+    "marker_stable_ms": 5,
     "marker_cooldown_ms": 50,
     "marker_sample_count": 1,
-    "marker_sample_delay_ms": 5,
-    "color_mode_settle_ms": 10,
+    "marker_sample_delay_ms": 1,
+    "color_mode_settle_ms": 5,
     "color_dummy_reads": 1,
-    "purple_reflect_min": 1,
-    "purple_reflect_max": 1,
-    "brown_reflect_min": 1,
-    "brown_reflect_max": 1,
+    "purple_red_ratio_min": 0.01,
+    "purple_blue_ratio_min": 0.01,
+    "purple_green_ratio_max": 0.01,
+    "brown_red_ratio_min": 0.01,
+    "brown_blue_ratio_max": 0.01,
 }
 
 UNITS = {
     "base_speed": "%",
-    "turn_limit": "%",
-    "thr_left": "%",
-    "thr_center": "%",
-    "thr_right": "%",
     "turn_speed": "%",
     "turn_90_factor": "x",
-    "turn_180_factor": "x",
-    "post_turn_settle_ms": "ms",
-    "branch_cooldown_ms": "ms",
-    "loop_delay_ms": "ms",
+    "branch_advance_mm": "mm",
     "marker_candidate_min": "%",
     "marker_candidate_max": "%",
     "marker_stable_ms": "ms",
     "marker_cooldown_ms": "ms",
     "marker_sample_delay_ms": "ms",
     "color_mode_settle_ms": "ms",
-    "purple_reflect_min": "%",
-    "purple_reflect_max": "%",
-    "brown_reflect_min": "%",
-    "brown_reflect_max": "%",
+    "purple_red_ratio_min": "x",
+    "purple_blue_ratio_min": "x",
+    "purple_green_ratio_max": "x",
+    "brown_red_ratio_min": "x",
+    "brown_blue_ratio_max": "x",
 }
 
 PARAM_ORDER = [
-    "kp", "kd", "base_speed", "turn_limit",
-    "thr_left", "thr_center", "thr_right",
-    "turn_speed", "turn_90_factor", "turn_180_factor",
-    "post_turn_settle_ms", "branch_confirm_count", "branch_cooldown_ms",
-    "loop_delay_ms", "marker_candidate_min", "marker_candidate_max",
-    "marker_stable_ms", "marker_cooldown_ms", "marker_sample_count",
-    "marker_sample_delay_ms", "color_mode_settle_ms", "color_dummy_reads",
-    "purple_reflect_min", "purple_reflect_max",
-    "brown_reflect_min", "brown_reflect_max",
+    "kp", "base_speed", "turn_speed", "turn_90_factor",
+    "branch_confirm_count", "branch_advance_mm",
+    "marker_candidate_min", "marker_candidate_max", "marker_stable_ms",
+    "marker_cooldown_ms", "marker_sample_count", "marker_sample_delay_ms",
+    "color_mode_settle_ms", "color_dummy_reads",
+    "purple_red_ratio_min", "purple_blue_ratio_min", "purple_green_ratio_max",
+    "brown_red_ratio_min", "brown_blue_ratio_max",
 ]
 
-SAVE_PATH = os.path.join(ROOT, "config", "stage4_color.json")
+SAVE_PATH = os.path.join(_ROOT, "config", "stage4_color.json")
+STAGE_NAME = "stage4_color"
 
-
-def clamp(value, lo, hi):
-    if value < lo:
-        return lo
-    if value > hi:
-        return hi
-    return value
-
-
-def now_ms():
-    return int(time.time() * 1000)
-
-
-def bits_to_str(bits):
-    return "".join(["1" if item else "0" for item in bits])
-
-
-def black_bits(raw, params):
-    thresholds = (params["thr_left"], params["thr_center"], params["thr_right"])
-    return tuple([1 if raw[i] < thresholds[i] else 0 for i in range(3)])
-
-
-def is_left_branch(bits):
-    return bits == (1, 1, 0) or bits == (1, 1, 1)
-
-
-def encoder_target(action, params):
-    if action == "uturn":
-        return BASE_PIVOT_DEG_180 * params["turn_180_factor"]
-    return BASE_PIVOT_DEG_90 * params["turn_90_factor"]
-
-
-def wheel_dirs(action):
-    if action == "turn_left":
-        return (-1, 1)
-    if action == "turn_right":
-        return (1, -1)
-    if action == "uturn":
-        return (1, -1)
-    raise ValueError("unknown turn action: {}".format(action))
+ACTIONS = [
+    {"name": "turn_left", "label": "Turn Left 90"},
+    {"name": "turn_right", "label": "Turn Right 90"},
+    {"name": "uturn", "label": "U-Turn 180"},
+    {"name": "read_marker", "label": "Read Marker"},
+    {"name": "beep_test", "label": "Beep Test"},
+]
 
 
 def marker_candidate(center_reflect, params):
@@ -291,32 +231,58 @@ class MarkerCandidateTracker(object):
         return False, elapsed
 
 
-def _range_hit(value, lo, hi):
-    return lo < hi and value >= lo and value < hi
-
-
-def classify_marker_by_reflect(center_reflect, params):
-    if _range_hit(center_reflect, params["purple_reflect_min"], params["purple_reflect_max"]):
-        return "purple"
-    if _range_hit(center_reflect, params["brown_reflect_min"], params["brown_reflect_max"]):
-        return "brown"
-    return None
-
-
 def classify_marker_by_color_code(color_code):
     if color_code == COLOR_BROWN:
         return "brown"
     return None
 
 
-def classify_marker(center_reflect, color_code, params):
-    reflect_kind = classify_marker_by_reflect(center_reflect, params)
-    if reflect_kind is not None:
-        return reflect_kind, "reflect_range"
+def rgb_ratios(rgb):
+    if rgb is None:
+        return None
+    total = float(rgb[0] + rgb[1] + rgb[2])
+    if total <= 0:
+        return None
+    return (rgb[0] / total, rgb[1] / total, rgb[2] / total)
+
+
+def classify_marker_by_rgb(rgb, params):
+    ratios = rgb_ratios(rgb)
+    if ratios is None:
+        return None
+
+    red, green, blue = ratios
+    if red >= params["brown_red_ratio_min"] and blue <= params["brown_blue_ratio_max"]:
+        return "brown"
+
+    if (red >= params["purple_red_ratio_min"] and
+            blue >= params["purple_blue_ratio_min"] and
+            green <= params["purple_green_ratio_max"]):
+        return "purple"
+
+    return None
+
+
+def classify_marker(color_code, rgb, params):
+    # Brown has an EV3 color code; purple does not. Trust brown code first.
     color_kind = classify_marker_by_color_code(color_code)
-    if color_kind is not None:
-        return color_kind, "color_code"
+    if color_kind == "brown":
+        return "brown", "color_code_brown_override"
+
+    rgb_kind = classify_marker_by_rgb(rgb, params)
+    if rgb_kind is not None:
+        return rgb_kind, "rgb_raw"
+
     return None, "unknown"
+
+
+def mean_rgb(values):
+    if not values:
+        return None
+    count = float(len(values))
+    return (sum([value[0] for value in values]) / count,
+            sum([value[1] for value in values]) / count,
+            sum([value[2] for value in values]) / count)
 
 
 def majority(values):
@@ -331,395 +297,308 @@ def majority(values):
     return best_value
 
 
-class PdController(object):
-    def __init__(self):
-        self.prev_error = 0.0
-        self.prev_t = None
-
-    def reset(self):
-        self.prev_error = 0.0
-        self.prev_t = None
-
-    def step(self, raw, params):
-        error = float(raw[2] - raw[0])
-        t = time.time()
-        if self.prev_t is None:
-            derivative = 0.0
-        else:
-            dt = t - self.prev_t
-            if dt <= 0:
-                dt = 0.001
-            derivative = (error - self.prev_error) / dt
-
-        turn = params["kp"] * error + params["kd"] * derivative
-        turn = clamp(turn, -params["turn_limit"], params["turn_limit"])
-
-        left_speed = params["base_speed"] - turn
-        right_speed = params["base_speed"] + turn
-        left_speed = clamp(left_speed, -100, 100)
-        right_speed = clamp(right_speed, -100, 100)
-
-        self.prev_error = error
-        self.prev_t = t
-        return left_speed, right_speed, error, derivative, turn
-
-
-class Ev3Hardware(object):
-    def __init__(self):
-        from ev3dev2.motor import LargeMotor, SpeedPercent
-        from ev3dev2.sensor.lego import ColorSensor
-
-        self._speed_percent = SpeedPercent
-        self.left_motor = LargeMotor(LEFT_MOTOR_PORT)
-        self.right_motor = LargeMotor(RIGHT_MOTOR_PORT)
-        self.left_sensor = ColorSensor(LEFT_SENSOR_PORT)
-        self.center_sensor = ColorSensor(CENTER_SENSOR_PORT)
-        self.right_sensor = ColorSensor(RIGHT_SENSOR_PORT)
-        self._sound = None
-        try:
-            from ev3dev2.sound import Sound
-            self._sound = Sound()
-        except Exception:
-            self._sound = None
-
-    def read_reflect(self):
-        return (
-            self.left_sensor.reflected_light_intensity,
-            self.center_sensor.reflected_light_intensity,
-            self.right_sensor.reflected_light_intensity,
-        )
-
-    def read_center_reflect(self):
-        return self.center_sensor.reflected_light_intensity
-
-    def read_center_color(self, settle_ms, dummy_reads):
-        self.prepare_center_color(settle_ms, dummy_reads)
-        return self.read_center_color_value()
-
-    def prepare_center_color(self, settle_ms, dummy_reads):
-        try:
-            self.center_sensor.mode = "COL-COLOR"
-        except Exception:
-            pass
-        if settle_ms > 0:
-            time.sleep(settle_ms / 1000.0)
-        for _ in range(int(dummy_reads)):
-            _ = self.center_sensor.color
-            time.sleep(0.01)
-
-    def read_center_color_value(self):
-        return self.center_sensor.color
-
-    def restore_center_reflect(self):
-        try:
-            self.center_sensor.mode = "COL-REFLECT"
-        except Exception:
-            pass
-        _ = self.center_sensor.reflected_light_intensity
-
-    def drive(self, left_speed, right_speed):
-        self.left_motor.on(self._speed_percent(left_speed))
-        self.right_motor.on(self._speed_percent(right_speed))
-
-    def stop(self):
-        self.left_motor.off(brake=True)
-        self.right_motor.off(brake=True)
-
-    def reset_encoders(self):
-        try:
-            self.left_motor.position = 0
-            self.right_motor.position = 0
-        except Exception:
-            self.left_motor.reset()
-            self.right_motor.reset()
-
-    def read_encoders(self):
-        return self.left_motor.position, self.right_motor.position
-
-    def enc_avg(self):
-        left, right = self.read_encoders()
-        return (abs(left) + abs(right)) / 2.0
-
-    def beep_marker(self, marker):
-        if self._sound is None:
-            return
-        count = 1
-        if marker == "purple":
-            count = 2
-        try:
-            for _ in range(count):
-                self._sound.beep()
-                time.sleep(0.08)
-        except Exception:
-            pass
-
-    def beep_unknown(self):
-        if self._sound is None:
-            return
-        try:
-            self._sound.beep()
-        except Exception:
-            pass
-
-
-def run_encoder_turn(hw, action, params, telemetry, stop_event):
-    target = encoder_target(action, params)
-    left_dir, right_dir = wheel_dirs(action)
-    speed = params["turn_speed"]
-    left_turn_speed = left_dir * speed
-    right_turn_speed = right_dir * speed
-    started = now_ms()
-
-    hw.reset_encoders()
-    hw.drive(left_turn_speed, right_turn_speed)
+def beep_marker(hw, marker):
+    count = 1
+    if marker == "purple":
+        count = 2
     try:
-        while not stop_event.is_set():
-            enc_l, enc_r = hw.read_encoders()
-            enc_avg = (abs(enc_l) + abs(enc_r)) / 2.0
-            telemetry.publish({
-                "mode": action,
-                "turning": True,
-                "target_deg": target,
-                "enc_l": enc_l,
-                "enc_r": enc_r,
-                "enc_avg": enc_avg,
-            })
-            if enc_avg >= target:
-                break
-            time.sleep(0.005)
-    finally:
-        hw.stop()
-
-    settle_ms = params["post_turn_settle_ms"]
-    if settle_ms > 0:
-        time.sleep(settle_ms / 1000.0)
-
-    enc_l, enc_r = hw.read_encoders()
-    enc_avg = (abs(enc_l) + abs(enc_r)) / 2.0
-    telemetry.publish({
-        "mode": action,
-        "turning": False,
-        "target_deg": target,
-        "enc_l": enc_l,
-        "enc_r": enc_r,
-        "enc_avg": enc_avg,
-        "elapsed_ms": now_ms() - started,
-    })
-    return enc_avg
+        for _ in range(count):
+            hw.beep_ok()
+            time.sleep(0.06)
+    except Exception:
+        pass
 
 
-def read_marker_at_rest(hw, params, stop_event):
+def read_marker_at_rest(hw, params, stop_flag, center_reflect_hint=None):
     sample_count = int(params["marker_sample_count"])
     sample_delay = params["marker_sample_delay_ms"] / 1000.0
-    reflects = []
-    for _ in range(sample_count):
-        if stop_event.is_set():
-            break
-        reflects.append(hw.read_center_reflect())
-        if sample_delay > 0:
-            time.sleep(sample_delay)
 
-    if reflects:
-        reflect_avg = sum(reflects) / float(len(reflects))
+    if center_reflect_hint is None:
+        reflect_avg = hw.read_center_reflect()
+        reflect_samples = 1
     else:
-        reflect_avg = 100.0
+        reflect_avg = float(center_reflect_hint)
+        reflect_samples = 1
 
     color_reads = []
-    hw.prepare_center_color(params["color_mode_settle_ms"], params["color_dummy_reads"])
+    rgb_reads = []
+    settle_s = params["color_mode_settle_ms"] / 1000.0
+    dummy_reads = int(params["color_dummy_reads"])
     for _ in range(sample_count):
-        if stop_event.is_set():
+        if stop_flag["on"]:
             break
-        color_reads.append(hw.read_center_color_value())
+        color_reads.append(hw.read_center_color(settle_s, dummy_reads))
+        rgb_reads.append(hw.read_center_rgb(settle_s, dummy_reads))
         if sample_delay > 0:
             time.sleep(sample_delay)
-    hw.restore_center_reflect()
+    hw.restore_reflect_mode(settle_s)
 
     color_code = majority(color_reads) if color_reads else COLOR_NONE
-    marker, source = classify_marker(reflect_avg, color_code, params)
+    rgb = mean_rgb(rgb_reads)
+    marker, source = classify_marker(color_code, rgb, params)
     return {
         "marker": marker,
         "source": source,
         "center_reflect_avg": reflect_avg,
         "color_code": color_code,
-        "reflect_samples": len(reflects),
+        "rgb": rgb,
+        "rgb_ratio": rgb_ratios(rgb),
+        "reflect_samples": reflect_samples,
         "color_samples": len(color_reads),
+        "rgb_samples": len(rgb_reads),
     }
 
 
-def publish_follow(telemetry, t_ms, raw, bits_str, action, derivative, branch_seen,
-                   marker_seen, marker_elapsed_ms, params):
-    telemetry.publish({
-        "t_ms": t_ms,
-        "mode": "follow",
-        "reflect": raw,
-        "bits": bits_str,
-        "error": action["error"],
-        "derivative": derivative,
-        "turn": action["turn"],
-        "left_speed": action["left"],
-        "right_speed": action["right"],
-        "branch_seen": branch_seen,
-        "marker_seen": marker_seen,
-        "marker_elapsed_ms": marker_elapsed_ms,
+def _publish(tele, params, started, **overrides):
+    now = time.monotonic()
+    frame = {
+        "t_ms": int((now - started) * 1000),
         "param_rev": params.rev(),
-    })
+        "running": True,
+        "mode": "follow",
+        "reflect": [0, 0, 0],
+        "bits": "000",
+        "marker": None,
+        "marker_source": None,
+        "center_reflect_avg": None,
+        "color_code": None,
+        "rgb": None,
+        "rgb_ratio": None,
+        "marker_elapsed_ms": 0,
+        "branch_seen": 0,
+    }
+    frame.update(overrides)
+    tele.publish(frame)
 
 
-def main():
-    params = SharedParams(
-        INITIAL_PARAMS,
-        PARAM_LIMITS,
-        MAX_STEP,
-        SAVE_PATH,
-        UI_STEP,
-        UNITS,
-        PARAM_ORDER,
-    )
+def run():
+    from lib.hardware import Ev3Hardware  # ev3dev2 (brick only)
+
+    params = SharedParams(INITIAL_PARAMS, PARAM_LIMITS, MAX_STEP, SAVE_PATH,
+                          ui_step=UI_STEP, units=UNITS, param_order=PARAM_ORDER)
     params.load_saved_into_defaults()
 
-    telemetry = Telemetry()
-    stop_event = threading.Event()
+    tele = Telemetry()
+    log = DecisionLog(telemetry=tele)
     hw = Ev3Hardware()
     pd = PdController()
     marker_tracker = MarkerCandidateTracker()
-    started = now_ms()
-    branch_seen = 0
-    last_branch_turn_ms = -999999
-    last_marker_ms = -999999
 
-    def stop_handler(source):
-        stop_event.set()
+    stop_flag = {"on": False, "source": None}
+    pause_state = {"paused": False, "source": None}
+    pending = {"turn": None, "marker": False, "beep": False}
+    plock = threading.Lock()
 
-    def do_handler(action, args):
-        snap = params.snapshot()
+    def on_stop(source):
+        stop_flag["on"] = True
+        stop_flag["source"] = source
+
+    def on_pause(paused, source):
+        pause_state["paused"] = bool(paused)
+        pause_state["source"] = source
+        log.log("PAUSE" if paused else "RESUME", "SPEED_ZERO_HOLD", source=source)
+        return {"mode": "paused" if paused else "follow"}
+
+    def on_do(action, args):
         if action in ("turn_left", "turn_right", "uturn"):
-            actual = run_encoder_turn(hw, action, snap, telemetry, stop_event)
-            pd.reset()
-            return {"action": action, "enc_avg": actual}
+            with plock:
+                pending["turn"] = action
+            return {"queued": action}
         if action == "read_marker":
-            hw.stop()
-            result = read_marker_at_rest(hw, snap, stop_event)
-            if result["marker"] is not None:
-                hw.beep_marker(result["marker"])
-            else:
-                hw.beep_unknown()
-            telemetry.publish({
-                "mode": "manual_marker",
-                "marker": result["marker"],
-                "marker_source": result["source"],
-                "center_reflect_avg": result["center_reflect_avg"],
-                "color_code": result["color_code"],
-                "param_rev": params.rev(),
-            })
-            pd.reset()
-            return result
+            with plock:
+                pending["marker"] = True
+            return {"queued": action}
         if action == "beep_test":
-            hw.beep_marker("purple")
-            return {"beep": True}
+            with plock:
+                pending["beep"] = True
+            return {"queued": action}
         return {"error": "unknown action: {}".format(action)}
 
-    server = TuningServer(
-        params,
-        telemetry,
-        do_handler=do_handler,
-        stop_handler=stop_handler,
-        actions=[
-            {"name": "turn_left", "label": "Turn Left"},
-            {"name": "turn_right", "label": "Turn Right"},
-            {"name": "uturn", "label": "U-Turn"},
-            {"name": "read_marker", "label": "Read Marker"},
-            {"name": "beep_test", "label": "Beep Test"},
-        ],
-        stage="stage4_color",
-    )
+    def should_stop():
+        return stop_flag["on"]
+
+    def should_pause():
+        return pause_state["paused"]
+
+    server = TuningServer(params, tele, do_handler=on_do, stop_handler=on_stop,
+                          pause_handler=on_pause, actions=ACTIONS, stage=STAGE_NAME)
     server.start()
 
-    print("stage4 color marker start")
-    print("candidate center reflect: [{}, {}) for {} ms".format(
-        INITIAL_PARAMS["marker_candidate_min"],
-        INITIAL_PARAMS["marker_candidate_max"],
-        INITIAL_PARAMS["marker_stable_ms"],
-    ))
+    thresholds = (THR_LEFT, THR_CENTER, THR_RIGHT)
+    started = time.monotonic()
+    branch_seen = 0
+    last_turn_ms = -999999
+    last_branch_side = None
+    last_marker_ms = -999999
+    last_follow_log = started - REASON_THROTTLE_S
+
+    print("stage4 color ready (Stage 3 v2 line trace + purple/brown markers). "
+          "stop via robotctl stop or Ctrl-C.")
 
     try:
-        while not stop_event.is_set():
+        while True:
+            if stop_flag["on"]:
+                hw.stop()
+                log.log("EMERGENCY_STOP", "NETWORK", source=stop_flag["source"])
+                break
+
+            if pause_state["paused"]:
+                hw.drive(0, 0)
+                raw = hw.read_reflect()
+                bits = black_bits(raw, thresholds)
+                _publish(tele, params, started, mode="paused", paused=True,
+                         reflect=list(raw), bits=bits_to_str(bits),
+                         branch_seen=branch_seen, enc_avg=hw.enc_avg())
+                time.sleep(LOOP_DELAY_MS / 1000.0)
+                continue
+
+            with plock:
+                turn_cmd = pending["turn"]
+                pending["turn"] = None
+                manual_marker = pending["marker"]
+                pending["marker"] = False
+                beep_test = pending["beep"]
+                pending["beep"] = False
+
+            if beep_test:
+                beep_marker(hw, "purple")
+                _publish(tele, params, started, mode="beep_test")
+                continue
+
             snap = params.snapshot()
-            raw = hw.read_reflect()
-            bits = black_bits(raw, snap)
-            bits_str = bits_to_str(bits)
-            t_ms_abs = now_ms()
-            t_ms = t_ms_abs - started
 
-            in_branch_cooldown = (t_ms_abs - last_branch_turn_ms) < snap["branch_cooldown_ms"]
-            if is_left_branch(bits) and not in_branch_cooldown:
-                branch_seen += 1
-            else:
+            if manual_marker:
+                hw.stop()
+                result = read_marker_at_rest(hw, snap, stop_flag)
+                if result["marker"] is not None:
+                    beep_marker(hw, result["marker"])
+                log.log("COLOR_READ", "MANUAL", marker=result["marker"],
+                        marker_source=result["source"],
+                        center_reflect_avg=result["center_reflect_avg"],
+                        color_code=result["color_code"],
+                        rgb=result["rgb"],
+                        rgb_ratio=result["rgb_ratio"])
+                _publish(tele, params, started, mode="manual_marker",
+                         marker=result["marker"], marker_source=result["source"],
+                         center_reflect_avg=result["center_reflect_avg"],
+                         color_code=result["color_code"],
+                         rgb=result["rgb"],
+                         rgb_ratio=result["rgb_ratio"])
+                pd.reset()
+                marker_tracker.reset()
+                continue
+
+            if turn_cmd is not None:
+                _run_turn(hw, turn_cmd, params, log, tele, should_stop, should_pause, started)
+                pd.reset()
                 branch_seen = 0
+                last_branch_side = None
+                last_turn_ms = now_ms()
+                marker_tracker.reset()
+                time.sleep(LOOP_DELAY_MS / 1000.0)
+                continue
 
-            marker_seen, marker_elapsed = marker_tracker.push(raw[1], t_ms_abs, snap)
-            in_marker_cooldown = (t_ms_abs - last_marker_ms) < snap["marker_cooldown_ms"]
+            raw = hw.read_reflect()
+            bits = black_bits(raw, thresholds)
+            bits_str = bits_to_str(bits)
+            side = branch_side(bits)
+            t_ms = now_ms()
+
+            marker_seen, marker_elapsed = marker_tracker.push(raw[1], t_ms, snap)
+            in_marker_cooldown = (t_ms - last_marker_ms) < snap["marker_cooldown_ms"]
             if marker_seen and not in_marker_cooldown:
                 hw.stop()
-                result = read_marker_at_rest(hw, snap, stop_event)
+                result = read_marker_at_rest(hw, snap, stop_flag, raw[1])
                 if result["marker"] is not None:
-                    hw.beep_marker(result["marker"])
-                telemetry.publish({
-                    "t_ms": t_ms,
-                    "mode": "marker",
-                    "reflect": raw,
-                    "bits": bits_str,
-                    "marker": result["marker"],
-                    "marker_source": result["source"],
-                    "center_reflect_avg": result["center_reflect_avg"],
-                    "color_code": result["color_code"],
-                    "marker_elapsed_ms": marker_elapsed,
-                    "param_rev": params.rev(),
-                })
+                    beep_marker(hw, result["marker"])
+                log.log("COLOR_READ", "AUTO_REFLECT_GATE", marker=result["marker"],
+                        marker_source=result["source"], reflect=list(raw),
+                        center_reflect_avg=result["center_reflect_avg"],
+                        color_code=result["color_code"],
+                        rgb=result["rgb"],
+                        rgb_ratio=result["rgb_ratio"],
+                        marker_elapsed_ms=marker_elapsed)
+                _publish(tele, params, started, mode="marker",
+                         reflect=list(raw), bits=bits_str,
+                         marker=result["marker"], marker_source=result["source"],
+                         center_reflect_avg=result["center_reflect_avg"],
+                         color_code=result["color_code"],
+                         rgb=result["rgb"],
+                         rgb_ratio=result["rgb_ratio"],
+                         marker_elapsed_ms=marker_elapsed,
+                         branch_seen=branch_seen)
                 pd.reset()
                 marker_tracker.reset()
                 branch_seen = 0
+                last_branch_side = None
                 last_marker_ms = now_ms()
-                time.sleep(snap["loop_delay_ms"] / 1000.0)
+                time.sleep(LOOP_DELAY_MS / 1000.0)
                 continue
 
-            if branch_seen >= int(snap["branch_confirm_count"]):
+            branch_seen, confirmed, last_branch_side = branch_confirm_step(
+                side, branch_seen, t_ms, last_turn_ms,
+                snap["branch_confirm_count"], BRANCH_COOLDOWN_MS, last_branch_side)
+
+            if confirmed:
                 hw.stop()
-                telemetry.publish({
-                    "t_ms": t_ms,
-                    "mode": "branch_left",
-                    "reason": "LEFT_BRANCH",
-                    "reflect": raw,
-                    "bits": bits_str,
-                    "branch_seen": branch_seen,
-                    "param_rev": params.rev(),
-                })
-                run_encoder_turn(hw, "turn_left", snap, telemetry, stop_event)
+                reason = "BRANCH_LEFT" if side == "left" else "BRANCH_RIGHT"
+                mode_name = "branch_left" if side == "left" else "branch_right"
+                log.log(reason, "BITS_" + bits_str, bits=bits_str,
+                        branch_seen=branch_seen, advance_mm=snap["branch_advance_mm"],
+                        reflect=list(raw))
+                _publish(tele, params, started, mode=mode_name, reflect=list(raw),
+                         bits=bits_str, branch_seen=branch_seen,
+                         enc_avg=hw.enc_avg(), advance_mm=snap["branch_advance_mm"])
+
+                def on_advance_tick():
+                    el, er = hw.read_encoders()
+                    _publish(tele, params, started, mode="advancing",
+                             advance_mm=snap["branch_advance_mm"],
+                             enc_l=el, enc_r=er, enc_avg=(abs(el) + abs(er)) / 2.0)
+
+                advance_straight(hw, snap["branch_advance_mm"], ADVANCE_SPEED,
+                                 _tick_stop(should_stop, on_advance_tick), should_pause)
+
                 pd.reset()
                 marker_tracker.reset()
                 branch_seen = 0
-                last_branch_turn_ms = now_ms()
+                last_branch_side = None
+                last_turn_ms = now_ms()
+
+                if should_stop():
+                    continue
+
+                cmd = "turn_left" if side == "left" else "turn_right"
+                _run_turn(hw, cmd, params, log, tele, should_stop, should_pause, started)
                 continue
 
-            left_speed, right_speed, error, derivative, turn = pd.step(raw, snap)
+            left_speed, right_speed, error, derivative, turn = pd_step(pd, raw, snap)
             if bits == (0, 0, 0):
                 left_speed *= 0.55
                 right_speed *= 0.55
-
             hw.drive(left_speed, right_speed)
-            publish_follow(
-                telemetry, t_ms, raw, bits_str,
-                {"left": left_speed, "right": right_speed, "error": error, "turn": turn},
-                derivative, branch_seen, marker_candidate(raw[1], snap),
-                marker_elapsed, params,
-            )
-            time.sleep(snap["loop_delay_ms"] / 1000.0)
+
+            now = time.monotonic()
+            last_follow_log = _maybe_follow_log(log, raw, error, turn, now, last_follow_log)
+
+            enc_l, enc_r = hw.read_encoders()
+            _publish(tele, params, started, mode="follow", reflect=list(raw),
+                     bits=bits_str, error=error, turn=turn, left_speed=left_speed,
+                     right_speed=right_speed, branch_seen=branch_seen,
+                     marker_seen=marker_candidate(raw[1], snap),
+                     marker_elapsed_ms=marker_elapsed,
+                     enc_l=enc_l, enc_r=enc_r, enc_avg=hw.enc_avg())
+
+            time.sleep(LOOP_DELAY_MS / 1000.0)
     except KeyboardInterrupt:
-        stop_event.set()
+        log.log("EMERGENCY_STOP", "KEYBOARD", source="keyboard")
     finally:
-        hw.stop()
-        server.stop()
-        print("stage4 color marker stopped")
+        try:
+            hw.stop()
+        finally:
+            server.stop()
+    print("stage4 color stopped.")
 
 
 if __name__ == "__main__":
-    main()
+    run()

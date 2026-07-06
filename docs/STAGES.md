@@ -107,6 +107,13 @@
 > 시퀀스**대로 도는 것(Stage 3 는 "보이는 분기 쪽" 고정) ② **노드 종류 구분**(T자/십자/막다른
 > 길 — Stage 3 는 좌/우 분기만 본다)이다. 착수 시 Stage 3 의 `stage3v2_linetrace_branch.py`
 > 함수(`black_bits`/`branch_side`/`pd_step`)를 그대로 재사용하고 새로 만들지 않는다.
+>
+> **2026-07-06 하위 단계 분할**: 통합 1방(`stage5_integration.py`)은 신규 변수가 많아 실기
+> 디버깅이 안 됐다. **5-1(고정 지시 회전) → 5-2(111 노드 종류 구분) → 5-3(시퀀스 소비) →
+> 5-4(LEAF 색 마커 + 전체 코스 = Stage 5 Done)** 로 쪼개, 하위 단계마다 신규 기능 하나씩
+> 실기 Done 후 진행한다. 속도·회전 factor(`base_speed`/`turn_speed`/`turn_90_factor`)는
+> 하위 단계 내내 라이브로 대시보드에 유지한다. 계획/Done 기준:
+> [specs/stage5_substages.md](specs/stage5_substages.md).
 
 - **목표**: 선 추종 → 노드 감지 → (정해진/입력된 방향) 회전 → 다음 선 올라타기 를 연결.
 - **Done**: 미리 정한 회전 시퀀스(예: 좌,직,우,U)대로 코스를 노드마다 정확히 돌아 통과.

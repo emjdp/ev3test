@@ -33,7 +33,8 @@
 | [stage4c_reflect_gate_color.md](stage4c_reflect_gate_color.md) | Stage 4 **브릿지 후보 C(기본 권장)** — 반사광 의심대역 게이트 + 컬러 모드 확정(A+B 결합) |
 | [stage4d_mode_interleave.md](stage4d_mode_interleave.md) | Stage 4 **브릿지 후보 D** — 반사광↔컬러 고속 교대(구현 전 `do bench_toggle` go/no-go 관문) |
 | [stage4v2_color_follow.md](stage4v2_color_follow.md) | **Stage 4 v2**(2026-07-03 사용자 방향 전환) — 중앙 **상시 컬러 모드** + 좌/우 반사광 라인추종 + 주행 중 마커 색 판정(전환 0회 — 성립 시 A~D 폐기 후보) |
-| [stage5_integration.md](stage5_integration.md) | 라인트레이싱 + 노드 분기 회전 통합 — 2026-07-06 v2 트랙(stage3v2+stage4 reflected)으로 구현 착수, §2/§5 원문 트랙은 stale(§11 구현 메모 참조) |
+| [stage5_integration.md](stage5_integration.md) | 라인트레이싱 + 노드 분기 회전 통합 — 2026-07-06 v2 트랙(stage3v2+stage4 reflected)으로 구현 착수, §2/§5 원문 트랙은 stale(§11 구현 메모 참조). **실기 검증은 하위 단계 분할로 진행(아래 substages)** |
+| [stage5_substages.md](stage5_substages.md) | **Stage 5 하위 단계 분할 계획(REVIEWED, 2026-07-06)** — 통합 1방이 실기 디버깅 불가라 5-1(고정 지시 회전)→5-2(111 노드 종류)→5-3(시퀀스 소비)→5-4(LEAF+전체 코스=Stage 5 Done)로 쪼갬. 속도·회전 factor 라이브 params 상시 유지 |
 | [stage6_explore_return.md](stage6_explore_return.md) | 탐색/복귀 알고리즘 |
 | [stage7_gripper.md](stage7_gripper.md) | 초음파 + 그리퍼 물체 집기 |
 

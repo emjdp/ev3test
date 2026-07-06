@@ -210,6 +210,26 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-06 — run_maze_v2: 팀 대시보드 손잡이 패리티(turn_speed/node_confirm_ms 라이브) (Agent: claude)
+- **사용자 요청**: inchul/master 스테이지(stage3v2, stage4_clolor_reflected)를 돌릴 때
+  대시보드에 뜨는 속도/회전 손잡이를 run_maze_v2 에서도 똑같이 만지고 싶다.
+- **비교**: 팀 스테이지 공통 라이브 = kp / base_speed / turn_speed / turn_90_factor /
+  branch_confirm_count / branch_advance_mm. v2 에 없던 것은 **turn_speed**(v1 은 config
+  상수 TURN_SPEED=18 고정)와 **confirm 손잡이**(v1 은 NODE_CONFIRM_MS=120 고정,
+  run_maze 는 횟수가 아니라 시간 기반이라 `node_confirm_ms` 로 노출 —
+  LIVE_TUNING.md Stage 2~ 후보 키와 동일).
+- **반영 (`stages/run_maze_v2.py`)**: 라이브 params 9→**11개**(turn_speed 시드 18,
+  node_confirm_ms 시드 120 — 둘 다 v1 확정값). "6개 이하" 가이드 초과 사유:
+  ★ 실기 보정값 다수 + 팀 공용 손잡이 맞춤(사용자 요청). v1 `_run_turn` 은
+  turn_speed 를 상수로 박아서 v2 전용 `_run_turn` 판을 두고(라이브 turn_speed 사용,
+  나머지 동일) 메인 루프 confirm 판정도 snap["node_confirm_ms"] 로 교체.
+  v1(run_maze.py)은 계속 미수정.
+- **검증**: `py_compile` 통과. `tests/test_run_maze_v2_logic.py` 에 v2 `_run_turn` 이
+  pivot 에 라이브 turn_speed 를 넘기는지 검증 추가(FakeHw drive_raw 기록), params
+  메타 11개 갱신. v1 회귀 테스트 통과. **실기 검증 필요**(turn_speed 18 이
+  stage3v2 계열 6 보다 빠름 — 회전 오버슛 시 대시보드에서 낮출 것).
+- **다음**: 실기에서 대시보드로 turn_speed/node_confirm_ms 를 팀 값과 비교 튜닝.
+
 ### 2026-07-06 — run_maze v2: 계단식 조향 → PD 조향 전환 (기존 v1 유지) (Agent: claude)
 - **실기 증상**: 라인에 똑바로 올라타 출발하면 괜찮은데, 비뚤어져 보정이 시작되면
   좌우로 발진하다 오류(가짜 000/노드 검출 → 정지/후진/유턴). 원인 분석:

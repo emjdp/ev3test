@@ -36,6 +36,10 @@ v1 에서 그대로 가져오는 것(import — 복붙 금지 규약):
 라이브 params: v1 의 follow_gain 을 kp 로 교체(시드 0.22 = stage3v2 실기 확정값).
 base_speed 시드도 PD 확정 조합(17)으로 맞춘다. left/right_th_steer 는 조향에서
 빠졌지만 후진 복구(line_found)의 감도로 여전히 쓰므로 라이브 유지.
+팀 대시보드 패리티(2026-07-06 요청): stage3v2/stage4 가 노출하는 회전 속도
+`turn_speed`(v1 상수 TURN_SPEED=18 시드)와 확정 손잡이 `node_confirm_ms`
+(v1 상수 120 시드)를 라이브로 추가 — 대시보드에서 팀원 스테이지와 같은
+속도/회전 손잡이를 그대로 만질 수 있다.
 
 실시간 대시보드/robotctl 사용법은 v1 과 동일(docs/LIVE_TUNING.md).
 
@@ -63,14 +67,17 @@ from lib.shared_params import SharedParams                         # noqa: E402
 from lib.telemetry import Telemetry                                 # noqa: E402
 from lib.decision_log import DecisionLog                            # noqa: E402
 from lib.tuning_server import TuningServer                          # noqa: E402
+from lib.decide_turn import decide_turn                              # noqa: E402 (Stage 2 판단층 재사용)
+from lib.turns import pivot                                          # noqa: E402 (Stage 2 구동층 재사용, 미수정)
 # v1(run_maze) 확정 코드 재사용(미수정): 탐색 판단층 + 구동 헬퍼 + 타이밍/임계값.
 from stages.run_maze import (                                        # noqa: E402
     bits_node, choose_branch, bits_to_str,
-    advance_straight, backup_until_line, _run_turn, _tick_stop, _publish,
+    advance_straight, backup_until_line, _tick_stop, _publish,
     COL_BLACK, COL_BLUE, COL_YELLOW, COL_RED,
     CANDIDATES, SLOW_ON, OPPOSITE,
     LEFT_TH_NODE, RIGHT_TH_NODE,
-    NODE_CONFIRM_MS, NODE_DEBOUNCE_MS,
+    NODE_DEBOUNCE_MS,
+    BASE_PIVOT_DEG_90, BASE_PIVOT_DEG_180, POST_TURN_SETTLE_MS,
     LOST_BACKUP_MM, BACKUP_SPEED, LOST_RETRY_WINDOW_MS,
     COLOR_DEBOUNCE_MS, START_EXIT_MM, GRIP_SEC, LOOP_DELAY_MS,
     REASON_THROTTLE_S, STRAIGHT_SPEED, SLOW_SPEED, MM_PER_DEG,
@@ -81,12 +88,18 @@ from stages.stage3v2_linetrace_branch import PdController            # noqa: E40
 
 
 # =====================================================================
-# 라이브 params — v1 의 9개에서 follow_gain → kp 교체. 나머지 동일.
+# 라이브 params — v1 의 9개에서 follow_gain → kp 교체 + 팀 대시보드 패리티
+# (2026-07-06 요청): stage3v2/stage4(팀원 스테이지)가 노출하는 turn_speed(회전 속도),
+# confirm 손잡이(여기서는 시간 기반 node_confirm_ms — LIVE_TUNING.md Stage 2~ 후보와
+# 동일 키)를 추가 = 11개. "6개 이하" 가이드 초과는 ★ 실기 보정값 + 팀 공용 손잡이
+# 맞춤이 이유(PROGRESS 2026-07-06 기록).
 # =====================================================================
 
 INITIAL_PARAMS = {
     "base_speed": 17,         # 주행 속도(%). PD 확정 조합(stage3v2/stage4v2) 시드
     "kp": 0.22,               # PD 조향 게인(좌/우 raw 차) — stage3v2 실기 확정값 시드
+    "turn_speed": 18,         # 회전 속도(%) — v1 확정 상수 TURN_SPEED 시드, 라이브 개방
+    "node_confirm_ms": 120,   # 노드 후보 확정 시간(ms) — v1 확정 상수 시드, 라이브 개방
     "left_th_steer": 69,      # 후진 복구 line_found 감도(조향에서는 더 이상 안 씀)
     "right_th_steer": 67,
     "node_advance_mm": 30,    # ★ 확정 후 재판정/회전 전 전진량
@@ -99,6 +112,8 @@ INITIAL_PARAMS = {
 PARAM_LIMITS = {
     "base_speed": (5, 45),
     "kp": (0.0, 3.0),
+    "turn_speed": (5, 40),
+    "node_confirm_ms": (0, 1000),
     "left_th_steer": (0, 100),
     "right_th_steer": (0, 100),
     "node_advance_mm": (0, 120),
@@ -111,6 +126,8 @@ PARAM_LIMITS = {
 MAX_STEP = {
     "base_speed": 5,
     "kp": 0.1,
+    "turn_speed": 5,
+    "node_confirm_ms": 60,
     "left_th_steer": 3,
     "right_th_steer": 3,
     "node_advance_mm": 10,
@@ -123,6 +140,8 @@ MAX_STEP = {
 UI_STEP = {
     "base_speed": 1,
     "kp": 0.01,
+    "turn_speed": 1,
+    "node_confirm_ms": 10,
     "left_th_steer": 1,
     "right_th_steer": 1,
     "node_advance_mm": 10,
@@ -133,6 +152,8 @@ UI_STEP = {
 }
 UNITS = {
     "base_speed": "%",
+    "turn_speed": "%",
+    "node_confirm_ms": "ms",
     "left_th_steer": "%",
     "right_th_steer": "%",
     "node_advance_mm": "mm",
@@ -142,7 +163,8 @@ UNITS = {
     "grip_speed": "%",
 }
 PARAM_ORDER = [
-    "base_speed", "kp", "left_th_steer", "right_th_steer",
+    "base_speed", "kp", "turn_speed", "node_confirm_ms",
+    "left_th_steer", "right_th_steer",
     "node_advance_mm", "turn_90_factor", "turn_180_factor",
     "grab_dist_cm", "grip_speed",
 ]
@@ -175,6 +197,49 @@ def lost_candidate_blocked(nbits, last_turn, guard_turn):
     000 이외의 후보(진짜 커브/분기 bits)는 절대 막지 않는다.
     """
     return nbits == (0, 0, 0) and abs(last_turn) > guard_turn
+
+
+# =====================================================================
+# 구동층 헬퍼 — 회전 1회 (v1 _run_turn 의 v2 판: turn_speed 를 라이브 param 으로)
+# =====================================================================
+
+def _run_turn(hw, cmd, params, log, tele, should_stop, should_pause, started):
+    """decide_turn(Stage 2 판단층) + pivot(Stage 2 구동층)으로 회전 1회 실행+기록.
+
+    v1 run_maze._run_turn 과 동일하되 한 가지만 다르다: 회전 속도를 config 상수
+    TURN_SPEED 로 고정하지 않고 **라이브 param `turn_speed`** 를 쓴다(팀 대시보드
+    패리티, 2026-07-06). v1 은 확정 코드라 수정하지 않고 여기 별도 판을 둔다.
+    """
+    snap = params.snapshot()
+    snap["BASE_PIVOT_DEG_90"] = BASE_PIVOT_DEG_90
+    snap["BASE_PIVOT_DEG_180"] = BASE_PIVOT_DEG_180
+    turn_speed = snap["turn_speed"]
+    param_rev = params.rev()
+
+    action, reason_code, detail = decide_turn(cmd, snap, {})
+    target = detail["target_deg"]
+
+    def on_tick():
+        el, er = hw.read_encoders()
+        _publish(tele, params, started, mode="turning", target_deg=target,
+                 enc_l=el, enc_r=er, enc_avg=(abs(el) + abs(er)) / 2.0)
+
+    stopper = _tick_stop(should_stop, on_tick)
+    actual = pivot(hw, action, target, turn_speed, should_stop=stopper, should_pause=should_pause)
+
+    if POST_TURN_SETTLE_MS > 0:
+        time.sleep(POST_TURN_SETTLE_MS / 1000.0)
+
+    ev_detail = dict(detail)
+    rule = ev_detail.pop("rule", "DO_TRIGGER")
+    ev_detail["param_rev"] = param_rev
+    ev_detail["enc_avg"] = actual
+    ev_detail["error_deg"] = actual - target
+    ev_detail["stopped_early"] = bool(should_stop())
+    log.log(reason_code, rule, **ev_detail)
+
+    hw.beep_ok()
+    return actual
 
 
 # =====================================================================
@@ -459,7 +524,7 @@ def run():
                 if cand != nbits:
                     cand = nbits
                     cand_t0 = now
-                elif ((now - cand_t0) * 1000 >= NODE_CONFIRM_MS and
+                elif ((now - cand_t0) * 1000 >= snap["node_confirm_ms"] and
                       (now - last_node_t) * 1000 >= NODE_DEBOUNCE_MS):
                     handle_node(nbits)
                     last_node_t = time.monotonic()

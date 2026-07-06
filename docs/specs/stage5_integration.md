@@ -307,6 +307,25 @@ def stage5_run(seq, params, hw, telem, events):
 
 ## 11. 미해결 / 실기 확인 필요
 
+> **구현 메모 (2026-07-06, claude — v2 트랙으로 구현 착수).** 아래 2026-07-02 메모의 결정
+> 사항("v2 위에 시퀀스만 얹을지")을 **v2 위에 얹는 쪽으로 확정**하고
+> `stages/stage5_integration.py` 를 구현했다. 이 문서 본문(§2/§5)의 `follow_to_node`/
+> `decide_line3`/`PivotTracker` 재사용 지시와 라이브 param 3개(`clear_junction_ms`/
+> `straight_nudge_ms`/`pre_turn_forward_ms`)는 **stale** — 실제 구현은:
+> - 재사용: stage3v2 `black_bits`/`branch_side`/`branch_confirm_step`/`pd_step`/
+>   `advance_straight`/`_run_turn`(pivot 경유) + stage4 reflected
+>   `MarkerCandidateTracker`/`read_marker_at_rest`. 전부 미수정 import.
+> - 노드 도착: JCT=stage3v2 분기 확정(bits 110/111/011), LEAF=stage4 색 마커 확정.
+>   회전 후 재포착은 v2 방식(엔코더 pivot 후 PD 재개) — `PivotTracker` 라인 재포착은 안 씀.
+> - 라이브 param 3개(v2 대응물): `base_speed`(통합 관성 대응) / `branch_advance_mm`
+>   (= pre_turn_forward 대응) / `straight_nudge_mm`(S 토큰). clear_junction 은 v2 의
+>   `BRANCH_COOLDOWN_MS`(1500ms 상수)가 이미 수행.
+> - 판단층 `decide_turn_from_sequence` 는 본문 §2 대로 + LEAF 강제 U턴(아래 antigravity #6
+>   반영, `LEAF_FORCE_UTURN`). 토큰은 문자 L/S/R/U. replay 어댑터는
+>   `stages.stage5_integration:decide_sequence_turn`(JCT 소비만 재연).
+> - 종료: `SEQUENCE_DONE`/`SEQUENCE_EXHAUSTED` 후 정지 + 대기(`do set_seq` 로 재시작).
+> **실기 미검증** — 보정 절차는 §7 의 정신(한 번에 한 값)을 따르되 param 이름은 위 3개로 읽는다.
+
 > **검토 반영 메모 (2026-07-02, Stage 3 v2 채택 전파 — 가장 크게 영향받음).** 공식 Stage 3
 > 구현체가 `lib/nodes.py:decide_line3`(및 그 기반이던 아날로그 centroid 설계)에서
 > **`stages/stage3v2_linetrace_branch.py`로 교체**됐고, 그 아날로그 설계는 폐기됐다

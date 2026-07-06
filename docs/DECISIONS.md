@@ -29,7 +29,12 @@
 |---|---|---|
 | `LINE_FOLLOW` | 라인추종 중(throttle) | reflect, bits, error, turn |
 | `BRANCH_LEFT` / `BRANCH_RIGHT` | **Stage 3(공식, bits 트랙)**: 좌/우 분기 확정(탱크 회전 트리거 전) | bits, branch_seen, advance_mm, reflect |
-| `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유) | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 부터는 node_id/available_exits/selected/rule 도 추가) |
+| `TURN_LEFT` / `TURN_RIGHT` / `UTURN` | 회전 시작 + **이유**(Stage 2 재사용, Stage 3 분기 회전도 이 코드 경유). **Stage 5 는 시퀀스 소비 판단(rule=FROM_SEQUENCE, node_index/selected/bits/detected)을 이 코드로 먼저 남기고, 회전 실행 기록(Stage 2 경유)이 한 번 더 남는다** | target_deg, factor, turn_speed, enc_avg, error_deg (Stage 5 시퀀스 판단은 node_index, selected, rule, bits, detected) |
+| `NODE_STRAIGHT` | **Stage 5**: 시퀀스 S 토큰 — 분기를 회전 없이 직진 통과(`straight_nudge_mm` 전진) | node_index, selected, rule, bits, detected |
+| `LEAF_FORCE_UTURN` | **Stage 5**: 색 마커(LEAF) 도착인데 시퀀스 토큰이 U 가 아님 — 안전을 위해 강제 U턴(토큰은 소비) | node_index, forced_from, selected, marker |
+| `SEQUENCE_DONE` | **Stage 5**: 시퀀스 전부 소비(코스 통과) — 정지 후 `do set_seq` 대기 | node_index |
+| `SEQUENCE_EXHAUSTED` | **Stage 5**: 노드를 더 만났는데 시퀀스가 비어 정지 | node_index (rule 이 JCT/LEAF 도착 종류) |
+| `SEQ_SET` | **Stage 5**: `do set_seq` 로 시퀀스 교체 + 처음부터 재시작 | seq |
 | `COLOR_READ` | 노드 색 읽음. Stage 4-D 관문 `do read_color` 정지 실측은 method:"at_rest", slot_ms 를 남긴다. Stage 4 reflected 는 반사광 게이트 판정 근거(candidate_kind, center_reflect_avg, color_code, rgb_ratio)를 남긴다. Stage 4 v2 는 주행 중 확정 method:"driving"/정지 판독 method:"at_rest" 로 남긴다 | color, reflect(바닥/노드 구분), dist_since_node_mm |
 | `MARKER_UTURN` | Stage 4 반사광 게이트에서 보라/RGB 또는 빨강 색상코드를 확정해 자동 180도 회전을 트리거 | marker, marker_source, candidate_kind, reflect, bits, color_code, center_reflect_avg, rgb_ratio |
 | `COLOR_MODE_ENTER` | Stage 4 v2 시작 시 중앙센서 컬러 모드 진입(주행 전 1회뿐) | color, settle_ms, dummy |

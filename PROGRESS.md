@@ -5,12 +5,12 @@
 
 ## 현재 단계
 
-**Stage 4 — 🟢 실기 Done(2026-07-03, 사용자 확인). `stage4_clolor_reflected.py`가 보라/빨강
-색상 노드 판정 + 자동 180도 회전을 수행한다. 보라 후보 반사광/RGB 비율 튜닝값은 브릭에서
-`robotctl save` 완료했고 로컬 `config/stage4_clolor_reflected.json`에도 미러링했다.**
-(Stage 1 은 2026-06-30, Stage 2 는 2026-06-30 사용자 판단으로 실기 Done 처리.)
-**다음 단계는 Stage 5(통합: 라인트레이싱 + 노드에서 분기 회전) 착수 가능. Stage 5~7 은 이 stage3v2/4 트랙
-(bits+PD 라인추종+탱크 회전)을 기반으로 응용해 구현한다.**
+**Stage 5 — 🟡 진행 중(2026-07-06 코드 작성 + PC 검증 완료, 실기 검증 필요).**
+`stages/stage5_integration.py` 가 stage3v2(bits+PD 라인추종+분기 탱크회전)와
+stage4 reflected(보라/빨강 색 마커 판정) 확정 코드를 미수정 import 로 재사용하며,
+노드마다 **시퀀스 토큰(L/S/R/U)을 소비**해 코스를 통과한다. 색 마커(LEAF)는 기록 후
+강제 U턴(`LEAF_FORCE_UTURN`). 실기 절차는 아래 "Stage 5 실기 검증 필요" 참조.
+(Stage 4 는 2026-07-03 실기 Done — `stage4_clolor_reflected.py` + 로컬 config 미러.)
 
 ## 단계 상태판
 
@@ -21,7 +21,7 @@
 | Stage 2 원시 회전(좌/우/U) | 🟢 실기 Done | 2026-06-30 사용자 실기 보정 완료. 저장값: speed 18, 90 factor 0.9, 180 factor 0.8, settle 120ms |
 | Stage 3 노드 감지+분기 회전 | 🟢 실기 Done | **2026-07-02.** `stages/stage3v2_linetrace_branch.py`(bits+PD 라인추종+`lib/turns.pivot` 탱크 회전)를 공식 Stage 3 로 확정, 아날로그 centroid 설계(`stage3_node_detect.py`/`stage3_node_detect.md`, 코드 미착수)는 폐기. 저장값: `kp=0.22`/`base_speed=17`/`turn_speed=6`/`turn_90_factor=0.66`/`branch_confirm_count=2`/`branch_advance_mm=30`. **사용자 확인: 좌/우 분기 모두 여러 번 재현 성공, 흔들림에 오회전 없음**(T자/십자/막다른 길 종류 구분은 Stage 5로 미룸 — STAGES.md Stage 3 정의 범위 밖) |
 | Stage 4 색상코드 노드 판정 | 🟢 실기 Done | **2026-07-03 사용자 확인.** `stages/stage4_clolor_reflected.py` 는 보라 반사광 후보→RGB-RAW 직접 판정, 빨강 반사광 후보→EV3 `COLOR_RED(5)` 판정 후 자동 180도 회전. 갈색 판단은 제거. 브릭 `robotctl save` 완료, 로컬 `config/stage4_clolor_reflected.json` 미러링. `stage4v2_color_follow.py` 는 보존하되 공식 Done 트랙은 reflected 쪽이다 |
-| Stage 5 통합(트레이싱+회전) | ⬜ 시작 전 | |
+| Stage 5 통합(트레이싱+회전) | 🟡 진행 중 | **2026-07-06 코드 작성 + PC 검증 완료(claude), 실기 검증 필요.** `stages/stage5_integration.py --seq "L S R U"` — stage3v2/stage4 reflected 위에 시퀀스 소비 회전 + LEAF(색 마커) 강제 U턴. 라이브 3개: `base_speed`/`branch_advance_mm`/`straight_nudge_mm` |
 | Stage 6 탐색/복귀 | ⬜ 시작 전 | |
 | Stage 7 물체 집기 | ⬜ 시작 전 | |
 
@@ -50,8 +50,12 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
-- [ ] **Stage 5 착수** — Stage 3 v2(bits+PD 라인추종+분기 탱크회전)와 Stage 4 reflected
+- [ ] **Stage 5 실기 검증** — 아래 "Stage 5 실기 검증 필요" 절차대로 브릭에서 확인 후
+      Done 처리. 보정은 라이브 3개(`base_speed`/`branch_advance_mm`/`straight_nudge_mm`)만,
+      한 번에 하나.
+- [x] **Stage 5 착수** — Stage 3 v2(bits+PD 라인추종+분기 탱크회전)와 Stage 4 reflected
       색상 노드 판정/자동 U턴 확정값을 기반으로 통합 방향 시퀀스·노드 종류 구분을 설계한다.
+      → 2026-07-06 코드 작성 + PC 검증 완료(claude, 아래 작업 로그).
 - [ ] ~~**Stage 4 v2 실기 검증(2026-07-03 코드 준비됨, claude)**~~ — **대체됨(2026-07-03)**:
       공식 Stage 4 Done 트랙은 `stage4_clolor_reflected.py` 다. v2 파일/명세는 보존하되
       필요 시 참고 후보로만 본다. 원래 절차:
@@ -119,6 +123,27 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - [x] (Stage 3) **코드 작성 + PC 검증 완료** — `stages/stage3_node_detect.py`, `lib/nodes.py`,
       `lib/hardware.py`(좌/우 반사광 + enc_avg 추가만), `tests/test_stage3_logic.py`. [claude]
 - [x] SSH 포트포워딩 확인: `ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local` — 2026-07-02 접속 확인.
+
+### Stage 5 실기 검증 필요 (다음에 브릭에서 할 일)
+
+전제: Stage 1~4 실기 Done. 통합에서 새로 맞추는 건 연결부뿐(명세 §7 정신, param 이름은 v2 대응물).
+
+1. **회전 단독 확인**: `robotctl do turn_left`/`turn_right`/`uturn` 으로 각 회전이 정상인지.
+   틀리면 Stage 2/3 값 문제 — 여기서 안 고치고 해당 스테이지로 돌아간다.
+2. **한 코너(JCT+L/R)**: 분기 1개 코스에서 `--seq L`(또는 R)로 감지→전진→회전→재포착 확인.
+   너무 일찍 돌면 `branch_advance_mm` ↑(MAX_STEP 10), 분기 지나쳐 돌면 ↓.
+3. **직진 통과(S)**: 십자/T 를 `--seq S` 로 직진 통과. 분기를 못 벗어나 재감지하면
+   `straight_nudge_mm` ↑, 다음 노드를 지나치면 ↓. (재감지 억제는 BRANCH_COOLDOWN_MS 1500ms
+   상수도 겹침 — nudge 로 안 잡히면 그때 검토.)
+4. **LEAF(색 마커)**: 마커 앞 코스에서 `--seq U` — COLOR_READ 기록 + U턴 확인.
+   시퀀스에 U 대신 L 을 줘 `LEAF_FORCE_UTURN` 이 남는지도 1회 확인.
+5. **시퀀스 전체**: 코스 한 바퀴 `--seq "L S R U"`. events 로그에서 매 노드
+   `TURN_*.selected` vs `BRANCH_*.bits` 비교 — 감지 문제/시퀀스 문제를 가른 뒤에만 param 을 만진다.
+6. **통합 관성**: 실패 #1(오버슛)/#2(빈 바닥 색) 재발 시 `base_speed` ↓ 를 한 변수로 기록.
+7. **Done**: 미리 정한 시퀀스대로 코스 통과 반복 재현 → `robotctl save` + 로컬 config 미러 + 이 파일 갱신.
+
+미확정: `UTURN_ADVANCE_MM`(현재 0, 파일 상수 — U턴 전 전진이 필요한 코스가 나오면 라이브 승격),
+`SEQUENCE_DONE` 후 대기 모드(`do set_seq` 재시작)가 실기 운용에 맞는지.
 
 ### Stage 3 — 아날로그 개정 구현 계획 (2026-07-01, 문서만) — **폐기 (2026-07-02)**
 
@@ -209,6 +234,38 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-06 — Stage 5 통합 코드 작성 + PC 검증 (Agent: claude)
+- **요청**: Stage 5 구현. 기반은 `stage4_clolor_reflected.py`(최종 Stage 4 코드).
+- **설계 결정(명세 §11 2026-07-02 메모의 미결 사항 확정)**: 명세 원문(decide_line3/
+  follow_to_node/PivotTracker 트랙)을 처음부터 재설계하지 않고 **v2 트랙 위에 시퀀스
+  소비만 얹는다**. Stage 5 에 남는 몫 = ① 시퀀스대로 회전(v2 는 "보이는 분기 쪽" 고정)
+  ② 노드 종류 구분(JCT=분기 bits / LEAF=색 마커). 명세 §11 에 구현 메모 추가.
+- **신규**: `stages/stage5_integration.py` — `--seq "L S R U"`(또는 `LSRU`) 입력.
+  - 재사용(미수정 import): stage3v2 `black_bits`/`branch_side`/`branch_confirm_step`/
+    `pd_step`/`advance_straight`/`_run_turn`(lib/turns.pivot 경유) + stage4 reflected
+    `MarkerCandidateTracker`/`read_marker_at_rest`/`_MuteTurnBeepHw`.
+  - 판단층(순수) `decide_turn_from_sequence(arrival_kind, seq, idx)`: JCT 는 토큰
+    (L=좌90/R=우90/U=180/S=직진 nudge)대로, **LEAF 는 토큰과 무관하게 강제 U턴**
+    (`LEAF_FORCE_UTURN`, antigravity #6 반영 — 시퀀스 실수로 벽 충돌 방지). 노드당
+    토큰 1개 소비. 감지(bits/detected)와 selected 를 함께 로깅해 감지/시퀀스 불일치를
+    로그로 가른다(명세 §8).
+  - 라이브 params 3개만: `base_speed`(17, 통합 관성 대응)/`branch_advance_mm`(30)/
+    `straight_nudge_mm`(60, 신규 — S 토큰 분기 통과 전진). 하위 확정값(kp 0.22,
+    turn_speed 6, turn_90_factor 0.66, 마커/RGB 판정값 등)은 `CONFIRMED_PARAMS` 파일
+    상수로 묻고 `ParamsView`(snapshot 병합 어댑터)로 하위 함수에 공급 — 재노출 안 함.
+  - 시퀀스 종료: `SEQUENCE_DONE`(다 소비)/`SEQUENCE_EXHAUSTED`(노드 더 만남) 후 정지
+    +대기, `robotctl do set_seq seq=LSRU` 로 재배포 없이 재시작(`SEQ_SET`).
+  - telemetry: `node_index`/`last_token`/`seq_remaining`/`seq` 를 매 프레임에 추가.
+- **문서**: DECISIONS.md 카탈로그에 `NODE_STRAIGHT`/`LEAF_FORCE_UTURN`/`SEQUENCE_DONE`/
+  `SEQUENCE_EXHAUSTED`/`SEQ_SET` 추가(+TURN_* 행에 Stage 5 시퀀스 판단 주석).
+  stage5_integration.md §11 구현 메모. 이 파일 상태판/TODO/실기 검증 절차.
+- **PC 검증(전부 통과)**: `python3 -m py_compile stages/*.py lib/*.py tools/*.py tests/*.py`,
+  신규 `tests/test_stage5_logic.py` 9건(토큰 파싱/JCT 매핑/LEAF 강제 U턴/고갈/노드당 1소비/
+  params 메타/ParamsView 병합/replay 소비), 기존 stage1~4 테스트 회귀, replay 스모크
+  (합성 분기 샘플 → `--decider stages.stage5_integration:decide_sequence_turn` 으로
+  노드마다 토큰 소비 + 고갈 시 SEQUENCE_EXHAUSTED 확인). f-string 없음(3.5 안전).
+- **실기 미검증** — 위 "Stage 5 실기 검증 필요" 절차대로 브릭에서 확인 필요.
 
 ### 2026-07-06 — Stage 4 대화 정리본 추가 (Agent: codex)
 - **요청**: 단순 대화 내보내기 안내 문서는 없애고, 사용자가 붙여준 Stage 4 대화 내용을

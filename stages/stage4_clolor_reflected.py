@@ -20,6 +20,9 @@ Purple has no stable EV3 color code, so it is confirmed by RGB-RAW ratios.
 Red is confirmed by the EV3 color code COLOR_RED(5). Brown is no longer a
 node marker in this stage.
 
+Confirmed red plays the EV3 one audio. Confirmed purple plays two.
+If those files are missing, the code falls back to the normal EV3 beep.
+
 Python 3.5 compatible: no f-strings.
 """
 
@@ -194,6 +197,41 @@ ACTIONS = [
     {"name": "beep_test", "label": "Beep Test"},
 ]
 
+MARKER_AUDIO_FILES = {
+    "red": (
+        "/usr/share/sounds/ev3dev/one.wav",
+        "/usr/share/sounds/ev3dev/One.wav",
+        "/home/robot/one.wav",
+        "/home/robot/One.wav",
+        "/home/robot/one",
+        "/home/robot/One",
+        "/home/robot/sounds/one.wav",
+        "/home/robot/sounds/One.wav",
+        "/home/robot/sounds/one",
+        "/home/robot/sounds/One",
+        "one.wav",
+        "One.wav",
+        "one",
+        "One",
+    ),
+    "purple": (
+        "/usr/share/sounds/ev3dev/two.wav",
+        "/usr/share/sounds/ev3dev/Two.wav",
+        "/home/robot/two.wav",
+        "/home/robot/Two.wav",
+        "/home/robot/two",
+        "/home/robot/Two",
+        "/home/robot/sounds/two.wav",
+        "/home/robot/sounds/Two.wav",
+        "/home/robot/sounds/two",
+        "/home/robot/sounds/Two",
+        "two.wav",
+        "Two.wav",
+        "two",
+        "Two",
+    ),
+}
+
 
 def _in_range(value, lo, hi):
     if lo >= hi:
@@ -305,12 +343,35 @@ def majority(values):
     return best_value
 
 
+def _play_sound_candidates(hw, candidates):
+    try:
+        play_sound_file = getattr(hw, "play_sound_file", None)
+        if play_sound_file is not None and play_sound_file(candidates):
+            return True
+    except Exception:
+        pass
+
+    sound = getattr(hw, "_sound", None)
+    if sound is None:
+        return False
+    for candidate in candidates:
+        try:
+            sound.play_file(candidate)
+            return True
+        except Exception:
+            pass
+    return False
+
+
 def beep_marker(hw, marker):
+    candidates = MARKER_AUDIO_FILES.get(marker)
+    if candidates is not None and _play_sound_candidates(hw, candidates):
+        return
+
     try:
         hw.beep_ok()
     except Exception:
         pass
-
 
 class _MuteTurnBeepHw(object):
     def __init__(self, hw):

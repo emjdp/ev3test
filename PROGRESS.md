@@ -3,6 +3,13 @@
 모든 에이전트가 공통으로 기록한다. **작업 후 반드시 갱신·커밋.**
 규칙은 [AGENTS.md](AGENTS.md), 단계 정의는 [docs/STAGES.md](docs/STAGES.md).
 
+## 2026-07-07 run_maze_v12 import 오류 수정 (Agent: codex)
+
+- 브릭에서 `python3 run_maze_v12.py` 실행 시 `from stages.run_maze import bits_to_str` 가 실패하던 문제를 수정했다.
+- `stages/run_maze.py`에 v2 이후 `run_maze_v*` 파일들이 공용으로 import하는 호환 헬퍼/상수(`bits_to_str`, `advance_straight`, `backup_until_line`, `_tick_stop`, `_publish`, 선 유실 복구 상수 등)를 복구했다.
+- `bits_node()`는 기존 3인자 호출과 v12의 라이브 임계값 5인자 호출을 모두 받도록 기본 인자를 추가했다.
+- 검증: `python3 -m py_compile stages/*.py lib/*.py tools/*.py`, `run_maze` v2/v3/v4/v5/v11/v12 import 확인, 기존 테스트(`test_stage1/2/3/3v2/4v2/4_clolor_reflected/4d/5`, `test_run_maze_v5_logic`) 통과. 실기 주행 검증은 아직 필요하다.
+
 ## 2026-07-07 run_maze_v3 가져오기 (Agent: codex)
 
 - `inchul` 브랜치에서 `origin/HoJeongDu` 최신 상태를 fetch/pull 한 뒤 `stages/run_maze_v3.py`를 가져왔다.

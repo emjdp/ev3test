@@ -79,8 +79,19 @@ TURN_90_FACTOR = 1.0     # ★
 TURN_180_FACTOR = 1.0    # ★
 SETTLE_S = 0.12
 
+# v2 이후 파일들이 import 하는 Stage 2 호환 이름.
+BASE_PIVOT_DEG_90 = PIVOT_90
+BASE_PIVOT_DEG_180 = PIVOT_180
+POST_TURN_SETTLE_MS = int(SETTLE_S * 1000)
+
 # --- 기하 (바퀴지름 56mm 가정) ---
 MM_PER_DEG = 3.14159265 * 56.0 / 360.0
+STRAIGHT_SPEED = 15
+
+# --- 선 유실(000) 후진 복구 ---
+LOST_BACKUP_MM = 100
+BACKUP_SPEED = 10
+LOST_RETRY_WINDOW_MS = 4000
 
 # --- 이벤트 ---
 GRAB_DIST_CM = 6.0       # ★
@@ -89,6 +100,8 @@ START_EXIT_MM = 50
 GRIP_SPEED = 30          # ★ 조립에 따라 부호 반전
 GRIP_SEC = 0.8
 LOOP_DELAY = 0.015
+LOOP_DELAY_MS = int(LOOP_DELAY * 1000)
+REASON_THROTTLE_S = 0.25
 
 # ev3dev2 ColorSensor.color 값 (0=없음 1=검정 2=파랑 3=초록 4=노랑 5=빨강 6=흰 7=갈)
 COL_BLACK, COL_BLUE, COL_YELLOW, COL_RED = 1, 2, 4, 5
@@ -112,11 +125,12 @@ def bits_steer(reflect_l, center_color, reflect_r):
             1 if reflect_r < RIGHT_TH_STEER else 0)
 
 
-def bits_node(reflect_l, center_color, reflect_r):
+def bits_node(reflect_l, center_color, reflect_r,
+              left_th_node=LEFT_TH_NODE, right_th_node=RIGHT_TH_NODE):
     """노드 판정용 bits (엄격한 임계값 — 완전 검정에서만 1)."""
-    return (1 if reflect_l < LEFT_TH_NODE else 0,
+    return (1 if reflect_l < left_th_node else 0,
             1 if center_color == COL_BLACK else 0,
-            1 if reflect_r < RIGHT_TH_NODE else 0)
+            1 if reflect_r < right_th_node else 0)
 
 
 def line_error(bits):
@@ -152,6 +166,128 @@ def clamp(v, lo, hi):
     if v > hi:
         return hi
     return v
+
+
+def bits_to_str(bits):
+    return "".join(["1" if item else "0" for item in bits])
+
+
+def line_found(reflect_l, center_color, reflect_r, th_left, th_right):
+    """후진 복구 중 선을 다시 만났는지 판정한다."""
+    return (center_color == COL_BLACK or
+            reflect_l < th_left or reflect_r < th_right)
+
+
+def advance_straight(hw, distance_mm, speed, should_stop=None, should_pause=None):
+    """엔코더 기준 직진. v2 이후 run_maze 계열이 공유하는 구동 헬퍼."""
+    hw.reset_encoders()
+    if distance_mm <= 0:
+        hw.stop()
+        return 0.0
+    if should_stop is not None and should_stop():
+        hw.stop()
+        return 0.0
+
+    target_deg = distance_mm / MM_PER_DEG
+    hw.drive(speed, speed)
+    try:
+        while True:
+            if should_stop is not None and should_stop():
+                break
+            if should_pause is not None and should_pause():
+                hw.drive(0, 0)
+                while should_pause():
+                    if should_stop is not None and should_stop():
+                        break
+                    time.sleep(0.01)
+                if should_stop is not None and should_stop():
+                    break
+                hw.drive(speed, speed)
+            if hw.enc_avg() >= target_deg:
+                break
+            time.sleep(0.005)
+    finally:
+        hw.stop()
+
+    return hw.enc_avg() * MM_PER_DEG
+
+
+def backup_until_line(hw, max_mm, speed, th_left, th_right,
+                      should_stop=None, should_pause=None):
+    """000(선 유실) 시 저속 후진하며 선을 재탐색한다."""
+    hw.reset_encoders()
+    if max_mm <= 0:
+        hw.stop()
+        return False, 0.0
+    if should_stop is not None and should_stop():
+        hw.stop()
+        return False, 0.0
+
+    target_deg = max_mm / MM_PER_DEG
+    found = False
+    hw.drive(-speed, -speed)
+    try:
+        while True:
+            if should_stop is not None and should_stop():
+                break
+            if should_pause is not None and should_pause():
+                hw.drive(0, 0)
+                while should_pause():
+                    if should_stop is not None and should_stop():
+                        break
+                    time.sleep(0.01)
+                if should_stop is not None and should_stop():
+                    break
+                hw.drive(-speed, -speed)
+            c = hw.read_center_color_value()
+            rl = hw.read_left_reflect()
+            rr = hw.read_right_reflect()
+            if line_found(rl, c, rr, th_left, th_right):
+                found = True
+                break
+            if hw.enc_avg() >= target_deg:
+                break
+            time.sleep(0.005)
+    finally:
+        hw.stop()
+
+    return found, hw.enc_avg() * MM_PER_DEG
+
+
+def _tick_stop(base_should_stop, on_tick):
+    """stop 콜백에 telemetry tick 부수효과를 얹는다."""
+    def _fn():
+        on_tick()
+        return base_should_stop()
+    return _fn
+
+
+_TELEMETRY_DEFAULTS = {
+    "mode": "idle",
+    "paused": False,
+    "reflect_l": 0,
+    "reflect_r": 0,
+    "color": None,
+    "bits": "000",
+    "error": 0.0,
+    "turn": 0.0,
+    "left_speed": 0,
+    "right_speed": 0,
+    "visits": 0,
+    "arrived": False,
+    "last_turn": None,
+    "returning": False,
+    "grabbed": False,
+}
+
+
+def _publish(tele, params, started, **overrides):
+    frame = dict(_TELEMETRY_DEFAULTS)
+    frame["t_ms"] = int((time.monotonic() - started) * 1000)
+    frame["param_rev"] = params.rev()
+    frame["running"] = True
+    frame.update(overrides)
+    tele.publish(frame)
 
 
 # =====================================================================

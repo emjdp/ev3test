@@ -26,6 +26,13 @@ Stage 4 추가(2026-07-03): 중앙센서 반사광↔컬러 모드 전환을 위
   - read_center_color(settle_s, dummy_reads) : 컬러 모드 전환 + settle + 더미읽기 후 color 1회.
   - restore_reflect_mode(settle_s)           : 반사광 모드 복귀 + settle.
 
+run_maze 추가(2026-07-03): 완주 통합 실행 파일(중앙센서 상시 컬러모드 + 그리퍼 + 초음파)에
+필요한 메서드를 **추가만** 한다. 위 메서드/__init__ 은 그대로 둔다. 그리퍼(outC)/초음파(in4)는
+Stage 1~4 가 쓰지 않으므로 Stage 3 좌/우 센서와 같은 지연 오픈 패턴을 쓴다.
+  - read_center_color_value()   : 모드 전환 없이 color 1회(중앙을 상시 컬러모드로 쓸 때 전용).
+  - grip_open(speed, seconds) / grip_close(speed, seconds) : 그리퍼(outC) 정/역 구동.
+  - read_distance_cm()          : 초음파(in4) 거리(cm).
+
 Stage 4 v2 추가(2026-07-03): 중앙 상시 컬러 모드 트랙(stage4v2_color_follow.md)용으로
 아래 메서드를 **추가만** 한다. 기존 메서드/__init__ 불변.
   - read_side_reflect()     : 좌/우 반사광만 — 중앙 모드를 건드리지 않는다.
@@ -43,6 +50,9 @@ CENTER_SENSOR_PORT = "in2"
 # Stage 3 노드 감지용 좌/우 컬러센서(HARDWARE.md 배선). 지연 오픈한다.
 LEFT_SENSOR_PORT = "in1"
 RIGHT_SENSOR_PORT = "in3"
+# run_maze 추가용 그리퍼/초음파 포트(Stage 0 배선 확정값).
+GRIPPER_MOTOR_PORT = "outC"
+ULTRASONIC_SENSOR_PORT = "in4"
 
 # 곱셈 트림(쏠림 보정). Stage 1 보정②에서 실측해 한쪽만 미세 조정한다.
 # 1.0 = 보정 없음. 빠른 쪽을 1.0 미만으로 낮추거나 느린 쪽을 그대로 둔다.
@@ -204,6 +214,41 @@ class Ev3Hardware(object):
         _ = self._center.reflected_light_intensity  # 모드 복귀 트리거
         if settle_s > 0:
             time.sleep(settle_s)
+
+    # --- run_maze 추가(중앙 상시 컬러모드 + 그리퍼 + 초음파). 위 메서드 불변. ---
+
+    def read_center_color_value(self):
+        """in2 컬러 값 1회(모드 전환/settle 없음). 첫 접근이 COL-COLOR 로 전환하고,
+        이미 그 모드면 그냥 읽는다 — run_maze 처럼 중앙센서를 상시 컬러모드로만
+        쓰는 구성 전용(반사광 전환 왕복 오버헤드가 없다)."""
+        return self._center.color
+
+    def _ensure_gripper(self):
+        """그리퍼(outC MediumMotor)를 첫 사용 시에만 연다(지연 오픈, Stage 3 패턴과 동일)."""
+        from ev3dev2.motor import MediumMotor
+        if getattr(self, "_gripper", None) is None:
+            self._gripper = MediumMotor(GRIPPER_MOTOR_PORT)
+
+    def grip_open(self, speed_percent, seconds):
+        """그리퍼 정방향 구동(브레이크 없음) — 물체를 놓거나 벌린다."""
+        self._ensure_gripper()
+        self._gripper.on_for_seconds(self._SpeedPercent(speed_percent), seconds, brake=False)
+
+    def grip_close(self, speed_percent, seconds):
+        """그리퍼 역방향 구동(브레이크 유지) — 물체를 집는다."""
+        self._ensure_gripper()
+        self._gripper.on_for_seconds(self._SpeedPercent(-speed_percent), seconds, brake=True)
+
+    def _ensure_ultrasonic(self):
+        """초음파(in4)를 첫 사용 시에만 연다(지연 오픈)."""
+        from ev3dev2.sensor.lego import UltrasonicSensor
+        if getattr(self, "_ultrasonic", None) is None:
+            self._ultrasonic = UltrasonicSensor(ULTRASONIC_SENSOR_PORT)
+
+    def read_distance_cm(self):
+        """in4 초음파 거리(cm). 소스통 근접 파지 트리거용."""
+        self._ensure_ultrasonic()
+        return self._ultrasonic.distance_centimeters
 
     # --- Stage 4 v2 추가(중앙 상시 컬러 모드 트랙, stage4v2_color_follow.md §2). 위 불변. ---
 

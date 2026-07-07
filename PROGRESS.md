@@ -21,6 +21,10 @@
 계열과 순수 로직 테스트(`tests/test_run_maze*_logic.py`)를 같은 계약으로 맞췄다.
 PC 검증(`py_compile`, run_maze/v2/v3 logic tests) 완료. **실기 검증 필요.**
 
+추가 병합(2026-07-07, codex): 같은 브랜치의 전 노드 방문/최단경로 복귀 후보
+`stages/run_maze_v4.py` 와 `tests/test_run_maze_v4_logic.py` 를 master 로 가져왔다.
+PC 검증(`py_compile`, run_maze/v1~v4 logic tests) 완료. **실기 검증 필요.**
+
 ## 단계 상태판
 
 | 단계 | 상태 | 비고 |
@@ -64,6 +68,9 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 - [ ] **run_maze_v3 왕복 완주 후보 실기 검증** — `HoJeongDu` 브랜치에서 가져온
       `stages/run_maze_v3.py` 를 브릭에서 실행해 노랑 출발→초록 도착→그리퍼 오픈→경로 기억
       복귀→노랑 종료 흐름을 확인한다. 실패 시 한 번에 값 하나만 조정하고 기록한다.
+- [ ] **run_maze_v4 전 노드 방문 후보 실기 검증** — `stages/run_maze_v4.py` 를 브릭에서
+      실행해 좌>우>직 분기 정리, 빨강 마커 전부 방문, 초록 도착 시퀀스, 최단경로 복귀를
+      확인한다. 실패 시 한 번에 값 하나만 조정하고 기록한다.
 - [ ] **Stage 5-2 착수(5-1 실기 Done 후)** — 111 십자 vs 110/011 T자 노드 종류 구분
       (로그만, 행동은 5-1 그대로). 착수 시
       [stage5_substages.md](docs/specs/stage5_substages.md) §3 을 명세로 구체화

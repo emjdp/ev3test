@@ -47,7 +47,14 @@
 | `GOAL_RETURN_START` | `run_maze_v3.py`: 도착 시퀀스(전진→그리퍼 오픈→후진→유턴) 완료, 경로 기억 복귀 시작 | path, path_len, goal_advance_mm |
 | `RETURN_STEP` | `run_maze_v3.py`: 복귀 중 노드에서 기록된 이동을 pop + 좌우 반전해 실행 | recorded, inverted, bits, color, path_left |
 | `RETURN_FALLBACK` | `run_maze_v3.py`: 복귀 replay 가 깨짐(STACK_EMPTY/PATH_MISMATCH/DEAD_END_ON_RETURN) → 즉석 탐색(우>좌>직)으로 폴백 | recorded, inverted, bits, color, path_left |
-| `NODE_IS_HOME` | `run_maze_v3.py`: 복귀 중 노랑(출발지) 재감지 = 집 도착, 정지+종료 | color, path_left |
+| `NODE_IS_HOME` | `run_maze_v3.py`/`run_maze_v4.py`: 복귀 중 노랑(출발지) 재감지 = 집 도착, 정지+종료 | color, path_left/plan_left |
+| `NODE_NEW_JUNCTION` | `run_maze_v4.py`: 새 분기 발견·지도 등록 (rule: FIRST/ADOPT/PENDING_DISCOVERED) | id, parent_id, heading, arms |
+| `BRANCH_PROBE` | `run_maze_v4.py`: 작업 분기의 팔 진입 시작(rule PRIORITY_*) / 팔 끝 정리 완료(rule ARM_CLEARED) | work, arm, move/kind |
+| `PENDING_SAVED` | `run_maze_v4.py`: 진입 중 새 분기 발견 — 작업 분기에 팔 남아 pending 기록 후 유턴 복귀 | work, via_arm, pending_count |
+| `BACK_TO_WORK` | `run_maze_v4.py`: 작업 분기 복귀 도착/부모 복귀 시작·도착/pending 도착 (rule 로 구분) | work, from, move |
+| `WORK_CLEARED_GOTO_PENDING` | `run_maze_v4.py`: 작업 분기 팔 정리 완료 → pending 자식 분기로 이동 시작 | work, arm, move, pending_left |
+| `EXPLORE_DONE` | `run_maze_v4.py`: 루트까지 전 분기 정리 완료 — 복귀 단계 전환 | nodes |
+| `RETURN_PLAN` | `run_maze_v4.py`: 복귀 최단경로(부모 체인) 1회 계산·기록 | path, steps |
 
 > **(2026-07-02) 공식 Stage 3 는 bits 트랙(`stages/stage3v2_linetrace_branch.py`)이다.** 좌/중/우
 > 3센서 raw 차 기반 PD 로 추종하고, 분기 확정은 `total`/시간 지속이 아니라 **연속 확정 횟수

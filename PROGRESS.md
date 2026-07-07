@@ -210,6 +210,38 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-07 — run_maze_v4 신규: 전 노드 방문(분기 정리형, 좌>우>직) + 최단경로 복귀 (Agent: claude)
+- **사용자 사양**: 모든 분기의 모든 팔 정리(작업 분기 하나씩, 새 분기는 pending 후
+  현 분기 마저 정리), 초록은 v3 도착 시퀀스 후 탐색 계속, 전부 끝나면 지도 기반
+  최단경로로 노드 안 찍고 집 복귀. 코드 작성 전 설계 컨펌 완료.
+- **설계 결정(컨펌됨)**: pending 을 전역 스택이 아닌 **분기별 목록 + 부모 복귀
+  (BACKTRACK)** 로 구현 — 모든 전이 주행이 인접 분기 간 이동이 되어
+  "전이 중 처음 만나는 분기 = 목표 분기" 불변식이 전 구간 성립(전역 위치인식 불필요).
+- **반영 (`stages/run_maze_v4.py` 신규 — v1/v2/v3/lib 미수정)**:
+  - 판단층(순수): 논리 heading N/E/S/W dead-reckoning(`turn_heading`/`abs_to_rel`),
+    분기 트리 `MazeMap`(팔 상태 UNEXPLORED/CLEARED/LINKED, 분기별 pending LIFO,
+    `path_to_root`=부모 체인=트리 최단경로), 상태머신 `Explorer`
+    (TO_FIRST/PROBE/RETURN_TO_WORK/GOTO_PENDING/BACKTRACK/HOME).
+  - 우선순위 `PRIORITY=("L","R","S")` 상수(그 시점 heading 기준 상대방향 평가,
+    rel U 잔여 팔도 포착). 구동층은 v3 뼈대에서 판단층 호출부만 교체 —
+    do_turn 이 회전 실행+heading 갱신을 한 곳에서(커브/유턴/도착 시퀀스 포함).
+  - 복귀: EXPLORE_DONE 시 RETURN_PLAN 1회 로그 → 분기마다 절대 출구를 상대
+    이동으로 변환 소비(RETURN_STEP). 불일치/소진 시 RETURN_FALLBACK 후 즉석
+    탐색(좌>우>직) — 멈춰 기다리지 않음. 복귀 중 빨강/초록 무시, 파지 비활성.
+  - 라이브 params v3 와 동일 12개(브릭에서 run_maze_v3.json 복사 이식 가능).
+    reason_code 7개 신설(DECISIONS.md 갱신).
+- **검증**: py_compile 통과. `tests/test_run_maze_v4_logic.py` — 사양 코스(코너→T1→
+  T2→사거리→T3→T4, 빨강6+초록1)를 그래프 픽스처로 시뮬레이션:
+  (a) 전 마커 방문·중복 없음 ✓ (b) 초록 마지막 ✓ (c) PENDING_SAVED→유턴 복귀→
+  잔여 스퍼(red4) 정리→WORK_CLEARED_GOTO_PENDING 순서 ✓ (d) 복귀가 마커를 안
+  지나고 T4→루트 부모 체인=트렁크 ✓ (e) 우>좌>직로 바꿔도 (a)(b)(d) 통과 ✓
+  + heading/pick_arm/복귀 폴백 단위 테스트. v1/v2/v3 테스트 회귀 통과.
+  **실기 검증 필요**(아래 체크리스트).
+- **다음(실기 체크리스트)**: ① config 이식(`cp config/run_maze_v3.json
+  config/run_maze_v4.json` — 키 동일) ② turn_90/180_factor 부터(직각 회전 정확도가
+  heading dead-reckoning 의 전제) ③ node_advance_mm ④ 스퍼 1개 미니 코스로
+  PENDING/BACK_TO_WORK 이벤트 순서 확인 ⑤ 전체 코스에서 RETURN_FALLBACK 유무 확인.
+
 ### 2026-07-06 — run_maze_v3 신규: 왕복 완주 — 경로 기억 복귀 (v2 유지) (Agent: claude)
 - **실기 확인(사용자)**: v2 마커 색 재배치로 가짜 유턴 해결, 편도 주행 동작 확인.
   node_advance_mm 는 대시보드로 조절(이미 라이브).

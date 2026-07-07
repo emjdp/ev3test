@@ -3,6 +3,9 @@
 import time
 
 
+EVENT_HISTORY_LIMIT = 120
+
+
 class DecisionLog(object):
     def __init__(self, telemetry=None, sink=None):
         self.telemetry = telemetry
@@ -44,7 +47,7 @@ class DecisionLog(object):
         if not isinstance(events, list):
             events = []
         events.append(dict(item))
-        latest["events"] = events[-20:]
+        latest["events"] = events[-EVENT_HISTORY_LIMIT:]
         if "t_ms" not in latest:
             latest["t_ms"] = item["t_ms"]
         self.telemetry.publish(latest)

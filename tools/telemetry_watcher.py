@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 
 RequestFn = Callable[[str, int, dict[str, Any], float], dict[str, Any]]
+RECENT_EVENTS_LIMIT = 120
 
 
 def request(host: str, port: int, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:
@@ -207,7 +208,7 @@ class WatchRun:
             append_jsonl(self.events, event)
             self._seen_event_keys.add(key)
             self._recent_events.append(event)
-            self._recent_events = self._recent_events[-20:]
+            self._recent_events = self._recent_events[-RECENT_EVENTS_LIMIT:]
         self._last_event_keys = new_event_keys
 
     def update_latest_state(

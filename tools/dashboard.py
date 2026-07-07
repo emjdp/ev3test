@@ -35,6 +35,22 @@ META_KEYS = {
     "last_events",
     "actions",
 }
+MOVE_EVENT_NAMES = {
+    "BRANCH_PROBE",
+    "WORK_CLEARED_GOTO_PENDING",
+    "BACK_TO_WORK",
+    "RETURN_STEP",
+    "RETURN_FALLBACK",
+}
+COLOR_LABELS = {
+    1: "black",
+    2: "blue",
+    3: "green",
+    4: "yellow",
+    5: "red",
+    6: "white",
+    7: "brown",
+}
 
 
 @dataclass
@@ -243,6 +259,14 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
         lines.append(_fit(f"state: {model.state_error}", width))
     else:
         lines.append(_fit("status: ready", width))
+
+    move_items = _navigation_items(model.events)
+    if move_items:
+        lines.append(sep)
+        lines.append(_fit("move log (from start):", width))
+        move_room = max(1, min(5, height - len(lines) - 3))
+        for line in _wrap_move_items(move_items, width, move_room):
+            lines.append(_fit(line, width))
 
     lines.append(sep)
     lines.append(_fit("events (recent):", width))
@@ -606,6 +630,139 @@ def _format_event(event: dict[str, Any]) -> str:
     if detail:
         return f"{prefix}{name} {detail}"
     return f"{prefix}{name}"
+
+
+def _navigation_items(events: list[dict[str, Any]]) -> list[str]:
+    items: list[str] = []
+    last_bits = ""
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        name = str(event.get("event") or event.get("reason_code") or "")
+        reason = str(event.get("reason") or "")
+        bits = _bits_label(event.get("bits")) or last_bits
+
+        event_bits = _bits_label(event.get("bits"))
+        if name == "NODE_CONFIRMED" and event_bits:
+            last_bits = event_bits
+            continue
+        if event_bits:
+            last_bits = event_bits
+
+        if name == "NODE_IS_START":
+            items.append("START({})".format(_event_place_label(event, "start")))
+        elif name == "NODE_IS_HOME":
+            items.append("HOME({})".format(_event_place_label(event, "home")))
+        elif name == "NODE_IS_GOAL":
+            items.append("GOAL({})".format(_event_place_label(event, "goal")))
+        elif name == "MARKER_UTURN":
+            items.append("U({})".format(_event_place_label(event, "marker")))
+        elif name == "NODE_CURVE":
+            move = _forced_curve_move(reason)
+            if move:
+                items.append("{}({})".format(move, bits or "node"))
+        elif name == "DEAD_END":
+            items.append("U({})".format(bits or "dead_end"))
+        elif name in MOVE_EVENT_NAMES:
+            move = _move_label(event.get("move"))
+            if move:
+                items.append("{}({})".format(move, bits or "node"))
+
+    return items
+
+
+def _wrap_move_items(items: list[str], width: int, max_lines: int) -> list[str]:
+    lines: list[str] = []
+    current = "  "
+    for idx, item in enumerate(items, 1):
+        token = "{:02d}:{}".format(idx, item)
+        if current.strip() and len(current) + len(token) + 2 > width:
+            lines.append(current.rstrip())
+            current = "  "
+            if len(lines) >= max_lines:
+                break
+        if current.strip():
+            current += "  "
+        current += token
+    if current.strip() and len(lines) < max_lines:
+        lines.append(current.rstrip())
+
+    if len(lines) == max_lines and len(items) > _count_wrapped_items(lines):
+        remaining = len(items) - _count_wrapped_items(lines)
+        suffix = "  ... +{} more; latest {}".format(remaining, items[-1])
+        if len(lines[-1]) + len(suffix) <= width:
+            lines[-1] += suffix
+        else:
+            lines[-1] = _fit(lines[-1], max(0, width - len(suffix))) + suffix
+    return lines or ["  (no moves yet)"]
+
+
+def _count_wrapped_items(lines: list[str]) -> int:
+    count = 0
+    for line in lines:
+        count += line.count(":")
+    return count
+
+
+def _bits_label(value: Any) -> str:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if len(stripped) == 3 and all(ch in "01" for ch in stripped):
+            return stripped
+        return ""
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        bits = []
+        for item in value:
+            if item in (0, 1, False, True):
+                bits.append("1" if bool(item) else "0")
+            else:
+                return ""
+        return "".join(bits)
+    return ""
+
+
+def _move_label(value: Any) -> str:
+    move = str(value or "").strip().upper()
+    return move if move in {"L", "R", "S", "U"} else ""
+
+
+def _forced_curve_move(reason: str) -> str:
+    if reason.endswith("LEFT"):
+        return "L"
+    if reason.endswith("RIGHT"):
+        return "R"
+    if reason.endswith("STRAIGHT"):
+        return "S"
+    return ""
+
+
+def _event_place_label(event: dict[str, Any], fallback: str) -> str:
+    marker = event.get("marker")
+    if marker:
+        return str(marker)
+    reason = str(event.get("reason") or "")
+    for prefix in ("COLOR_", "NODE_IS_"):
+        if reason.startswith(prefix):
+            value = reason[len(prefix):].lower()
+            if value:
+                return value.split("_", 1)[0]
+    color = event.get("color")
+    label = _color_label(color)
+    if label:
+        return label
+    return fallback
+
+
+def _color_label(color: Any) -> str:
+    if isinstance(color, bool):
+        return ""
+    if isinstance(color, int):
+        return COLOR_LABELS.get(color, str(color))
+    try:
+        return COLOR_LABELS.get(int(color), str(color))
+    except (TypeError, ValueError):
+        return str(color) if color is not None else ""
 
 
 def _format_seconds(t_ms: float | None) -> str:

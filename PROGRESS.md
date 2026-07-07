@@ -3,6 +3,12 @@
 모든 에이전트가 공통으로 기록한다. **작업 후 반드시 갱신·커밋.**
 규칙은 [AGENTS.md](AGENTS.md), 단계 정의는 [docs/STAGES.md](docs/STAGES.md).
 
+## 2026-07-07 run_maze_v3 가져오기 (Agent: codex)
+
+- `inchul` 브랜치에서 `origin/HoJeongDu` 최신 상태를 fetch/pull 한 뒤 `stages/run_maze_v3.py`를 가져왔다.
+- `run_maze_v3.py`가 `stages.run_maze_v2`를 직접 import하므로, 실행 가능성을 위해 같은 브랜치의 `stages/run_maze_v2.py`도 함께 가져왔다.
+- 현재 PC 환경에 `python`/`python3`/`py` 실행기가 없어 `py_compile`은 수행하지 못했다. 브릭 또는 Python 설치 환경에서 문법 점검과 실기 검증이 필요하다.
+
 ## 현재 단계
 
 **Stage 4 — 🟢 실기 Done(2026-07-03, 사용자 확인). `stage4_clolor_reflected.py`가 보라/빨강

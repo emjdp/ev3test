@@ -24,6 +24,12 @@
 - 빨강/노랑/초록 마커는 주행/후보 확정보다 우선해 즉시 정지 후 U턴하고 총 2회 부저가 울리도록 `MARKER_UTURN` 경로를 추가했다.
 - 현재 PC 환경에 `python`/`python3`/`py` 실행기가 없어 `py_compile`은 수행하지 못했다. 브릭 또는 Python 설치 환경에서 문법 점검과 실기 검증이 필요하다.
 
+## 2026-07-07 run_maze_v5 가져오기 (Agent: codex)
+
+- 사용자가 말한 `hojeongdo` 쪽을 확인했으나 원격 브랜치는 `origin/HoJeongDu`, `origin/inchul`, `origin/master`만 있었다.
+- 최신 `origin/HoJeongDu`에는 `run_maze_v5.py`가 없었고, `origin/master`에서 `stages/run_maze_v5.py`와 `tests/test_run_maze_v5_logic.py`를 찾아 현재 `inchul` 브랜치로 가져왔다.
+- `run_maze_v5.py`는 v4 탐색 로직을 재사용하고 대시보드/robotctl `reset` 액션을 추가한 버전이다. PC 환경에 `python`/`python3`/`py` 실행기가 없어 `py_compile`은 수행하지 못했다.
+
 ## 현재 단계
 
 **Stage 4 — 🟢 실기 Done(2026-07-03, 사용자 확인). `stage4_clolor_reflected.py`가 보라/빨강

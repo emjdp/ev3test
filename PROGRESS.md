@@ -210,6 +210,16 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-07 — run_maze_v4 기본 params 시드 갱신 (Agent: codex)
+- 사용자 실기 튜닝값 요청에 따라 `stages/run_maze_v4.py` 의 `INITIAL_PARAMS` 기본값을 갱신.
+  limits/UI step/MAX_STEP 은 기존 값이 요청 표와 일치해 변경하지 않았다.
+- 반영값: `base_speed=16`, `kp=0.2`, `turn_speed=6`, `node_confirm_ms=90`,
+  `left_th_steer=64`, `right_th_steer=65`, `node_advance_mm=20`,
+  `goal_advance_mm=20`, `turn_90_factor=0.66`, `turn_180_factor=0.71`,
+  `grab_dist_cm=6.0`, `grip_speed=30`.
+- 검증: `python3 -m py_compile stages/run_maze_v4.py lib/*.py` 통과. **실기 검증 필요**
+  (브릭에 기존 `config/run_maze_v4.json` 저장값이 있으면 코드 기본값보다 저장값이 우선한다).
+
 ### 2026-07-07 — run_maze_v4 신규: 전 노드 방문(분기 정리형, 좌>우>직) + 최단경로 복귀 (Agent: claude)
 - **사용자 사양**: 모든 분기의 모든 팔 정리(작업 분기 하나씩, 새 분기는 pending 후
   현 분기 마저 정리), 초록은 v3 도착 시퀀스 후 탐색 계속, 전부 끝나면 지도 기반

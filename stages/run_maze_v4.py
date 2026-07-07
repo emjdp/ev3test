@@ -100,16 +100,16 @@ from stages.stage3v2_linetrace_branch import PdController            # noqa: E40
 # =====================================================================
 
 INITIAL_PARAMS = {
-    "base_speed": 17,         # 주행 속도(%). PD 확정 조합(stage3v2/stage4v2) 시드
-    "kp": 0.22,               # PD 조향 게인(좌/우 raw 차) — stage3v2 실기 확정값 시드
+    "base_speed": 16,         # 주행 속도(%). PD 확정 조합(stage3v2/stage4v2) 시드
+    "kp": 0.2,                # PD 조향 게인(좌/우 raw 차) — stage3v2 실기 확정값 시드
     "turn_speed": 6,          # 회전 속도(%) — 팀 스테이지 확정값 시드
-    "node_confirm_ms": 120,   # 노드 후보 확정 시간(ms)
-    "left_th_steer": 69,      # 후진 복구 line_found 감도
-    "right_th_steer": 67,
-    "node_advance_mm": 30,    # ★ 확정 후 재판정/회전 전 전진량
-    "goal_advance_mm": 50,    # ★ 도착 시퀀스: 초록 후 추가 전진(=후진) 거리
-    "turn_90_factor": 0.75,   # ★ 과/부족 시 0.05 단위 미세조정
-    "turn_180_factor": 0.75,  # ★ 유턴도 같은 비율로 과회전 가감
+    "node_confirm_ms": 90,    # 노드 후보 확정 시간(ms)
+    "left_th_steer": 64,      # 후진 복구 line_found 감도
+    "right_th_steer": 65,
+    "node_advance_mm": 20,    # ★ 확정 후 재판정/회전 전 전진량
+    "goal_advance_mm": 20,    # ★ 도착 시퀀스: 초록 후 추가 전진(=후진) 거리
+    "turn_90_factor": 0.66,   # ★ 과/부족 시 0.05 단위 미세조정
+    "turn_180_factor": 0.71,  # ★ 유턴도 같은 비율로 과회전 가감
     "grab_dist_cm": 6.0,      # ★ 조립에 따라 실기값 다름
     "grip_speed": 30,         # ★ 조립에 따라 부호 반전
 }

@@ -26,6 +26,7 @@ from stages.stage5_integration import (  # noqa: E402
     sequence_to_text,
     classify_node_bits,
     node_confirm_step,
+    node_approach_speed_scale,
     decide_turn_from_sequence,
     make_stage4_color_params,
 )
@@ -76,6 +77,16 @@ def test_node_confirm_step_counts_same_kind_only():
     print("node_confirm_step ok")
 
 
+def test_node_approach_speed_scale_slows_linearly():
+    assert node_approach_speed_scale(None, 0, 2) == 1.0
+    assert node_approach_speed_scale("CROSS", 0, 2) == 1.0
+    assert node_approach_speed_scale("CROSS", 1, 2) == 0.5
+    assert node_approach_speed_scale("CROSS", 2, 2) == 0.0
+    assert abs(node_approach_speed_scale("LEFT_BRANCH", 1, 3) - (2.0 / 3.0)) < 0.0001
+    assert abs(node_approach_speed_scale("LEFT_BRANCH", 2, 3) - (1.0 / 3.0)) < 0.0001
+    print("node_approach_speed_scale ok")
+
+
 def test_decide_turn_from_sequence_and_exhaustion():
     seq = parse_sequence("R L S U")
     token, reason, detail = decide_turn_from_sequence(seq, 0, "LEFT_BRANCH", "110")
@@ -115,6 +126,7 @@ def main():
     test_parse_sequence_forms()
     test_classify_node_bits_keeps_cross_separate()
     test_node_confirm_step_counts_same_kind_only()
+    test_node_approach_speed_scale_slows_linearly()
     test_decide_turn_from_sequence_and_exhaustion()
     test_stage5_params_and_color_merge()
     print("ALL stage5 logic tests passed")

@@ -250,6 +250,15 @@ def node_confirm_step(kind, node_seen, t_ms, last_node_ms, confirm_count, cooldo
     return node_seen, confirmed, new_last_kind
 
 
+def node_approach_speed_scale(kind, node_seen, confirm_count):
+    """Linearly slow down while a node candidate is being confirmed."""
+    if kind is None or node_seen <= 0:
+        return 1.0
+    count = max(1, int(confirm_count))
+    remaining = max(0, count - int(node_seen))
+    return float(remaining) / float(count)
+
+
 def decide_turn_from_sequence(seq, idx, node_kind, bits_str):
     if idx >= len(seq):
         return None, "SEQUENCE_EXHAUSTED", {
@@ -577,6 +586,11 @@ def run(argv=None):
             if bits == (0, 0, 0):
                 left_speed *= 0.55
                 right_speed *= 0.55
+            node_slow_scale = node_approach_speed_scale(
+                node_kind, node_seen, snap["node_confirm_count"])
+            if node_slow_scale < 1.0:
+                left_speed *= node_slow_scale
+                right_speed *= node_slow_scale
             hw.drive(left_speed, right_speed)
 
             now = time.monotonic()
@@ -586,6 +600,7 @@ def run(argv=None):
                      mode="follow", reflect=list(raw), bits=bits_str,
                      node_kind=node_kind, node_seen=node_seen, error=error,
                      turn=turn, left_speed=left_speed, right_speed=right_speed,
+                     node_slow_scale=node_slow_scale,
                      marker_seen=marker_candidate(raw[1], color_params),
                      candidate_kind=candidate_kind,
                      enc_l=enc_l, enc_r=enc_r, enc_avg=hw.enc_avg())

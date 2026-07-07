@@ -226,6 +226,9 @@ def render_lines(model: DashboardModel, width: int = 100, height: int = 32) -> l
         )
     )
     lines.append(_fit(_telemetry_summary(frame), width))
+    trail = frame.get("trail")
+    if isinstance(trail, str) and trail:
+        lines.append(_fit_trail(f"trail: {trail}", width))
     lines.append(sep)
     lines.append(_fit("params           value        limit          step      max_step  unit", width))
 
@@ -867,6 +870,18 @@ def _fit(text: str, width: int) -> str:
     if len(text) > width:
         return text[: max(0, width - 1)]
     return text
+
+
+def _fit_trail(text: str, width: int) -> str:
+    """trail 줄 전용: 폭 초과 시 왼쪽을 잘라 최신(오른쪽 끝) 항목이 보이게 한다.
+
+    일반 _fit 은 오른쪽을 자르는데, trail 은 최근 이동이 오른쪽 끝에 쌓이므로
+    그렇게 자르면 방금 지나온 자리가 안 보인다. 대신 왼쪽을 잘라내고, 잘렸으면
+    표시가 나게 앞에 '…' 를 붙인다(그만큼 한 글자 더 자른다).
+    """
+    if len(text) <= width:
+        return text
+    return "…" + text[-(width - 1):]
 
 
 def parse_args() -> argparse.Namespace:

@@ -46,6 +46,11 @@
 | `LINE_LOST` / `LINE_RECOVER` | 선 유실/복구 | reflect |
 | `PAUSE` / `RESUME` | 대시보드/robotctl 일시정지 토글 | source |
 | `EMERGENCY_STOP` | 네트워크 stop 또는 watchdog 안전정지 | source |
+| `NODE_CANDIDATE_LATCH` | **frun_v1**: confirm 창 OR-latch 로 노드 확정(rule=OR_LATCH_CONFIRMED) — 110/011 깜빡임이 111 로 합산됐는지 raw/latched 비교로 보인다 | bits_raw, bits_latched |
+| `NODE_CHOICE` | **frun_v1**: 분기(≥2 출구)에서 좌수법 선택. rule 이 선택 이유: LEFT_HAND_PICK(L>S>R) / CROSS_STRAIGHT_FIRST(D형 십자 최초방문 직진 우선) / TEE_LEFT_FIRST(B형 T자) / DEAD_END | node_id, is_new, bits, has_left/right/straight, choice, trail_add |
+| `NODE_CROSS` / `NODE_TEE` | **frun_v1**: 111 peek 결과 — 직진 뚫림+최초방문(D형, rule=PEEK_STRAIGHT_OPEN_FIRST_VISIT) / 직진 막힘(B형, rule=PEEK_STRAIGHT_BLOCKED, peek_backup_mm 후진 복귀 직후) | node_id, bits |
+| `MAP_MISMATCH` | **frun_v1**: 재도착한 분기에서 예전에 확인된 팔이 안 보임(rule=ARMS_DISAGREE) — FrunMap trusted=False 강등, 이후 D형 예외 꺼짐(주행은 좌수법으로 계속) | node_id, bits, expected, actual |
+| `RUN_TRAIL` | **frun_v1**: 도착/세션 종료/비상정지 시 trail 전체를 한 번에 기록 — 로그만으로 경로 복기 | trail, count |
 
 > **(2026-07-02) 공식 Stage 3 는 bits 트랙(`stages/stage3v2_linetrace_branch.py`)이다.** 좌/중/우
 > 3센서 raw 차 기반 PD 로 추종하고, 분기 확정은 `total`/시간 지속이 아니라 **연속 확정 횟수

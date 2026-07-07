@@ -1,66 +1,60 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""run_maze.py — 완주 전용 통합 실행 파일 (v4: 우>좌>직 우선순위 + 직전 분기 기억).
+"""run_maze_v2.py — 완주 통합 실행 파일 v2: 계단식 조향 → PD 조향 전환.
 
-v4 탐색 로직 (미로를 모른다는 전제):
-  - 모든 노드/커브 후보에서: 정지 → 조금 전진(node_advance_mm) → 중앙 색상으로
-    직진 길 유무 재판정 (매번 수행).
-  - 갈 수 있는 길이 1개뿐이면 강제 이동(커브): 그쪽으로 회전. 기억 갱신 없음.
-  - 갈 수 있는 길이 2개 이상이면 분기점: 우측 > 좌측 > 직진 우선순위로 선택.
-    단, 막다른 노드(파랑/000)에서 유턴해 돌아오는 길(returning)이라면
-    "왔던 길로 되돌아가는 방향"을 제외하고 고른다:
-      진입을 좌회전으로 했으면 → 복귀 시 우측 제외
-      진입을 우회전으로 했으면 → 복귀 시 좌측 제외
-      진입을 직진으로 했으면   → 복귀 시 직진 제외
-    (직전 분기 1개만 기억. 가지 안에 커브가 있어도 그대로 되짚어 나오므로
-     분기점에서의 상대 방향 관계는 유지된다.)
-  - 파랑(방문 노드): 즉시 정지+유턴, returning 세팅. 빨강: 도착. 노랑: 출발 대기.
-  - 이 로직으로 지도상 노드 3개(우상단 2, 중앙 1)는 방문 못함 — 완주 우선,
-    노드 살리기는 다음 단계.
+v1(run_maze.py, 유지)과의 차이 — 실기 증상(2026-07-06) 대응:
+  증상: 라인에 똑바로 올라타 출발하면 괜찮은데, 한 번 비뚤어져 보정이 시작되면
+  좌우로 왔다갔다(발진)하다가 오류(가짜 000/노드 검출 → 정지/후진/유턴)가 났다.
+  원인 3가지:
+    1) v1 line_error 는 계단식(0/±0.5/±1.0/±2.0) + 감쇠(D항) 없음 → 한 번 틀어지면
+       조향이 점프하며 진동이 커진다.
+    2) 중앙 색상값(center_black)이 조향에 들어가는데, 색상모드는 라인 경계에서
+       값이 불안정(검정↔흰색↔갈색 깜빡임) → 오차가 ±1.0↔±2.0 을 오가며 악화.
+    3) 크게 휘청이면 사이드 센서가 라인을 깊게 가로지르거나 셋 다 벗어나
+       가짜 노드 bits / (0,0,0) 이 confirm 됐다.
 
-선 유실 복구(2026-07-03 실기 요청): 커브를 오인식해 선을 벗어나면 좌/중/우 전부
-흰색(000)이 되는데, 원래는 곧장 막다른 길로 보고 유턴했다. 이제 000 확정 시 먼저
-**저속 후진(backup_until_line)으로 최대 LOST_BACKUP_MM 만큼 되짚으며** 선을 재탐색한다
-(LINE_LOST → 찾으면 LINE_RECOVER 후 추종 재개). 못 찾거나, 복구 직후
-LOST_RETRY_WINDOW_MS 안에 또 000 이 되면(진짜 선 끝 = 막다른 길) 기존대로 유턴한다.
+v2 변경점 (조향만 교체, 탐색/노드 로직은 v1 그대로 재사용):
+  - 조향: stage3v2 확정 PD(PdController — error = 우reflect - 좌reflect 연속값,
+    kp 0.22 / KD 0.05 / TURN_LIMIT 16) 를 import 해 재사용. 중앙 색상은 조향에서
+    제외한다(stage4v2 와 동일 원리 — pd_step 은 중앙 raw 를 쓰지 않는다).
+  - 중앙 색상(상시 컬러모드, 모드 전환 0회 유지)은 노드/마커 판정에만 쓴다:
+    검정=직진 길 있음, 노랑(출발)/빨강(방문)/초록(도착) 마커. 마커 색은
+    v1(파랑 방문/빨강 도착)에서 재배치 — 검정↔파랑 오인식 대응(아래 COL_VISIT 참조).
+  - 000 가드: 직전 turn 이 클 때(|turn| > LOST_GUARD_TURN, 한창 보정 중)는
+    (0,0,0) 을 노드 후보로 잡지 않는다 — 보정 중 순간 이탈이 막다른 길로
+    오검출되는 것 차단. 진짜 선 끝이면 turn 이 줄어든 다음 루프들에서 잡힌다.
+    가드는 000 에만 건다 — (0,1,1) 같은 진짜 커브 bits 는 사이드 센서가 거의
+    완전 검정(20/18 미만)이어야만 나와서 그 자체로 신뢰도가 높다.
+  - PD 상태(prev_error/prev_t)는 회전/후진/일시정지 등으로 주행이 끊길 때마다
+    reset 한다(끊긴 시간 동안의 오차 변화가 D항 스파이크가 되는 것 방지).
 
-라이브 튜닝(이 파일이 실제로 만지는 손잡이만, docs/LIVE_TUNING.md): 원문(첨부 v4)에 ★/⚠
-로 "실기에서 보정 필요"라고 표시된 값 + 실기에서 요청된 base_speed 만 SharedParams 로
-노출한다 — 나머지 확정 게인·타이밍은 이 파일 상단 config 상수로 고정한다.
-  - `base_speed`                       : 주행 속도. 실기 요청(2026-07-03)으로 라이브 개방.
-  - `follow_gain`                      : 조향 게인. 실기 요청(2026-07-03)으로 낮추고 라이브 개방.
-  - `left_th_steer` / `right_th_steer` : ⚠ 흔들리면 66~67 로 낮출 것(원문 경고).
-  - `node_advance_mm`                  : ★ 확정 후 재판정/회전 전 전진량.
-  - `turn_90_factor` / `turn_180_factor`: ★ 과/부족 시 0.05 단위 미세조정.
-  - `grab_dist_cm` / `grip_speed`      : ★ 조립에 따라 실기값·부호가 다름.
+v1 에서 그대로 가져오는 것(import — 복붙 금지 규약):
+  - 탐색 로직: bits_node / choose_branch / line_found / CANDIDATES / 우>좌>직
+    우선순위 + 직전 분기 기억(returning/exclude).
+  - 구동 헬퍼: advance_straight / backup_until_line / _run_turn(Stage 2 재사용).
+  - 000 후진 복구, 방문 마커 유턴, 도착 정지, 노랑 출발 대기, 그리퍼/초음파.
+    (마커 색만 v2 에서 재배치: 방문 파랑→빨강, 도착 빨강→초록)
 
-실시간 대시보드(다른 스테이지와 동일한 인프라, docs/LIVE_TUNING.md):
-  1) 브릭에서 이 파일 실행(아래) → tuning 서버가 127.0.0.1:8765 에 뜬다.
-  2) 노트북에서 SSH 터널: ssh -L 8765:127.0.0.1:8765 robot@ev3dev.local
-  3) 노트북에서 tools/dashboard.py 실행(curses TUI) — 파라미터 조정/이벤트/telemetry 확인.
-     또는 tools/robotctl.py get/set/stop/do/save/rollback (비대화형).
+라이브 params: v1 의 follow_gain 을 kp 로 교체(시드 0.22 = stage3v2 실기 확정값).
+base_speed 시드도 PD 확정 조합(17)으로 맞춘다. left/right_th_steer 는 조향에서
+빠졌지만 후진 복구(line_found)의 감도로 여전히 쓰므로 라이브 유지.
+팀 대시보드 패리티(2026-07-06 요청): stage3v2/stage4 가 노출하는 회전 속도
+`turn_speed`(팀 확정값 6 시드 — v1 상수 18 은 팀 대비 빨라 교체)와 확정 손잡이
+`node_confirm_ms`(v1 상수 120 시드)를 라이브로 추가 — 대시보드에서 팀원
+스테이지와 같은 속도/회전 손잡이를 그대로 만질 수 있다.
 
-v3 유지: 임계값 2단 분리 — 조향용(좌69/우67)은 반걸침부터 보정,
-  노드 판정용(좌20/우18)은 거의 완전 덮임만 후보. 드리프트 오검출 차단.
-  실측: 흰바닥 74/78, 반걸침 65/57, 2/3걸침 30/26, 완전검정(추정) 11~12.
+실시간 대시보드/robotctl 사용법은 v1 과 동일(docs/LIVE_TUNING.md).
 
-센서 운용: 중앙(in2)=항상 색상모드, 좌(in1)/우(in3)=항상 반사광모드.
-
-스테이지 발췌값/규약 (팀원 코드):
-  Stage 0 포트: outA=좌주행, outB=우주행, outC=그리퍼,
-                in1=좌컬러, in2=중앙컬러, in3=우컬러, in4=초음파.
-  Stage 1: left = base - turn, right = base + turn.
-  Stage 2: 회전 = lib/turns.pivot(엔코더 각도 + 보정계수, 90°=193°, 180°=386°) 재사용.
-  Stage 3: bits 추종(gain=12, limit 35), confirm 120ms + debounce 900ms(확정값, config 상수).
+센서 운용: 중앙(in2)=항상 색상모드, 좌(in1)/우(in3)=항상 반사광모드. (v1 동일)
 
 규약: Python 3.5 안전(f-string 금지) / ev3dev2 는 run() 안 import /
       BACK 버튼 미사용, 정지는 네트워크 stop(robotctl/대시보드) 또는 Ctrl-C.
 
-독립 실행(브릭):  python3 stages/run_maze.py
-문법 점검(PC):    python3 -m py_compile stages/run_maze.py lib/*.py
+독립 실행(브릭):  python3 stages/run_maze_v2.py
+문법 점검(PC):    python3 -m py_compile stages/run_maze_v2.py lib/*.py
+판단층 테스트(PC): python3 tests/test_run_maze_v2_logic.py
 """
 
-import math
 import os
 import sys
 import threading
@@ -77,17 +71,38 @@ from lib.decision_log import DecisionLog                            # noqa: E402
 from lib.tuning_server import TuningServer                          # noqa: E402
 from lib.decide_turn import decide_turn                              # noqa: E402 (Stage 2 판단층 재사용)
 from lib.turns import pivot                                          # noqa: E402 (Stage 2 구동층 재사용, 미수정)
+# v1(run_maze) 확정 코드 재사용(미수정): 탐색 판단층 + 구동 헬퍼 + 타이밍/임계값.
+from stages.run_maze import (                                        # noqa: E402
+    bits_node, choose_branch, bits_to_str,
+    advance_straight, backup_until_line, _tick_stop, _publish,
+    COL_BLACK, COL_YELLOW, COL_RED,
+    CANDIDATES, SLOW_ON, OPPOSITE,
+    LEFT_TH_NODE, RIGHT_TH_NODE,
+    NODE_DEBOUNCE_MS,
+    BASE_PIVOT_DEG_90, BASE_PIVOT_DEG_180, POST_TURN_SETTLE_MS,
+    LOST_BACKUP_MM, BACKUP_SPEED, LOST_RETRY_WINDOW_MS,
+    COLOR_DEBOUNCE_MS, START_EXIT_MM, GRIP_SEC, LOOP_DELAY_MS,
+    REASON_THROTTLE_S, STRAIGHT_SPEED, SLOW_SPEED, MM_PER_DEG,
+)
+# Stage 3 확정 조향 재사용(미수정): PD 수식 + KD/TURN_LIMIT 은 stage3v2 내부값.
+from stages.stage3v2_linetrace_branch import PdController            # noqa: E402
 # lib.hardware (ev3dev2) 는 run() 안에서 import 한다.
 
 
 # =====================================================================
-# 라이브 params — 원문(v4)이 ★/⚠ 로 표시한 값 7개 + base_speed/follow_gain(실기 요청) = 9개.
+# 라이브 params — v1 의 9개에서 follow_gain → kp 교체 + 팀 대시보드 패리티
+# (2026-07-06 요청): stage3v2/stage4(팀원 스테이지)가 노출하는 turn_speed(회전 속도),
+# confirm 손잡이(여기서는 시간 기반 node_confirm_ms — LIVE_TUNING.md Stage 2~ 후보와
+# 동일 키)를 추가 = 11개. "6개 이하" 가이드 초과는 ★ 실기 보정값 + 팀 공용 손잡이
+# 맞춤이 이유(PROGRESS 2026-07-06 기록).
 # =====================================================================
 
 INITIAL_PARAMS = {
-    "base_speed": 20,         # 주행 속도(%). 실기 요청(2026-07-03)으로 라이브 개방
-    "follow_gain": 8.0,       # 조향 게인. 원문 12.0 → 실기 요청으로 하향+라이브 개방
-    "left_th_steer": 69,      # ⚠ 흔들림 증상 나오면 66~67 로 낮출 것(원문 경고)
+    "base_speed": 17,         # 주행 속도(%). PD 확정 조합(stage3v2/stage4v2) 시드
+    "kp": 0.22,               # PD 조향 게인(좌/우 raw 차) — stage3v2 실기 확정값 시드
+    "turn_speed": 6,          # 회전 속도(%) — 팀 스테이지(stage3v2/stage4) 확정값 시드
+    "node_confirm_ms": 120,   # 노드 후보 확정 시간(ms) — v1 확정 상수 시드, 라이브 개방
+    "left_th_steer": 69,      # 후진 복구 line_found 감도(조향에서는 더 이상 안 씀)
     "right_th_steer": 67,
     "node_advance_mm": 30,    # ★ 확정 후 재판정/회전 전 전진량
     "turn_90_factor": 0.75,   # ★ 과/부족 시 0.05 단위 미세조정
@@ -98,7 +113,9 @@ INITIAL_PARAMS = {
 
 PARAM_LIMITS = {
     "base_speed": (5, 45),
-    "follow_gain": (1.0, 30.0),
+    "kp": (0.0, 3.0),
+    "turn_speed": (5, 40),
+    "node_confirm_ms": (0, 1000),
     "left_th_steer": (0, 100),
     "right_th_steer": (0, 100),
     "node_advance_mm": (0, 120),
@@ -110,7 +127,9 @@ PARAM_LIMITS = {
 
 MAX_STEP = {
     "base_speed": 5,
-    "follow_gain": 2.0,
+    "kp": 0.1,
+    "turn_speed": 5,
+    "node_confirm_ms": 60,
     "left_th_steer": 3,
     "right_th_steer": 3,
     "node_advance_mm": 10,
@@ -122,7 +141,9 @@ MAX_STEP = {
 
 UI_STEP = {
     "base_speed": 1,
-    "follow_gain": 0.5,
+    "kp": 0.01,
+    "turn_speed": 1,
+    "node_confirm_ms": 10,
     "left_th_steer": 1,
     "right_th_steer": 1,
     "node_advance_mm": 10,
@@ -133,6 +154,8 @@ UI_STEP = {
 }
 UNITS = {
     "base_speed": "%",
+    "turn_speed": "%",
+    "node_confirm_ms": "ms",
     "left_th_steer": "%",
     "right_th_steer": "%",
     "node_advance_mm": "mm",
@@ -142,67 +165,32 @@ UNITS = {
     "grip_speed": "%",
 }
 PARAM_ORDER = [
-    "base_speed", "follow_gain", "left_th_steer", "right_th_steer",
+    "base_speed", "kp", "turn_speed", "node_confirm_ms",
+    "left_th_steer", "right_th_steer",
     "node_advance_mm", "turn_90_factor", "turn_180_factor",
     "grab_dist_cm", "grip_speed",
 ]
 
 # =====================================================================
-# config 상수(라이브 아님) — 이미 확정된 Stage 2/3 게인·타이밍, 기하값.
+# v2 전용 config 상수 — 나머지 확정값은 전부 run_maze(v1) 에서 import.
 # =====================================================================
 
-# --- 깊은 조향/노드 판정 임계값(Stage 3 확정 감도, 원문 그대로) ---
-LEFT_TH_DEEP = 47
-RIGHT_TH_DEEP = 41
-LEFT_TH_NODE = 20
-RIGHT_TH_NODE = 18
+# 000 노드 후보 가드: 직전 |turn| 이 이 값보다 크면(한창 보정 중) (0,0,0) 을
+# 후보로 잡지 않는다. TURN_LIMIT(16, stage3v2)의 절반 — 실기에서 오검출이
+# 남으면 낮추고, 진짜 유실 반응이 늦으면 올린다.
+LOST_GUARD_TURN = 8.0
 
-# --- Stage 3 확정값: bits 추종 (base_speed/follow_gain 은 라이브 param 승격, 위 참조) ---
-TURN_LIMIT = 35
-SLOW_SPEED = 12
+# 마커 색 재배치(2026-07-06 실기): EV3 컬러센서가 검정 라인을 파랑(2)으로 자주
+# 오인해 라인트레이싱 중 가짜 유턴(BLUE_REVISIT)이 났다. 방문 마커를 검정과
+# 혼동이 적은 빨강으로 옮기고, 빨강을 쓰던 도착은 초록으로 바꾼다.
+# ★ 물리 코스도 같이 교체: 방문 노드 테이프 파랑→빨강, 도착 테이프 빨강→초록.
+COL_GREEN = 3                # ev3dev2 ColorSensor.color 코드
+COL_VISIT = COL_RED          # 방문(체크포인트) 마커 — v1 은 파랑이었다
+COL_GOAL = COL_GREEN         # 도착 마커 — v1 은 빨강이었다
 
-# --- 선 유실(000) 후진 복구 ---
-LOST_BACKUP_MM = 100        # 최대 후진 거리(mm). 이 안에서 선 못 찾으면 막다른 길로 판정
-BACKUP_SPEED = 10           # 후진 속도(%). 지나친 선을 놓치지 않게 저속 고정
-LOST_RETRY_WINDOW_MS = 4000 # 복구 직후 이 시간 안에 또 000 이면 재시도 없이 유턴(무한 반복 방지)
+SAVE_PATH = os.path.join(_ROOT, "config", "run_maze_v2.json")
+STAGE_NAME = "run_maze_v2"
 
-# --- Stage 3 확정값: 노드 판정 타이밍 ---
-NODE_CONFIRM_MS = 120
-NODE_DEBOUNCE_MS = 900
-
-# --- Stage 2 확정값: 회전(BASE_PIVOT_DEG_90/180 은 lib/decide_turn.py 계약과 동일 키) ---
-TURN_SPEED = 18
-BASE_PIVOT_DEG_90 = 193.0
-BASE_PIVOT_DEG_180 = 386.0
-POST_TURN_SETTLE_MS = 120
-
-# --- 기하(바퀴지름 56mm 가정) + 직진/전진 속도 ---
-WHEEL_DIAM_MM = 56.0
-MM_PER_DEG = math.pi * WHEEL_DIAM_MM / 360.0
-STRAIGHT_SPEED = 15
-
-# --- 이벤트 타이밍 ---
-COLOR_DEBOUNCE_MS = 1500
-START_EXIT_MM = 50
-GRIP_SEC = 0.8
-LOOP_DELAY_MS = 15
-REASON_THROTTLE_S = 0.25   # LINE_FOLLOW 이벤트 폭주 방지
-
-# ev3dev2 ColorSensor.color 값 (0=없음 1=검정 2=파랑 3=초록 4=노랑 5=빨강 6=흰 7=갈)
-COL_BLACK, COL_BLUE, COL_YELLOW, COL_RED = 1, 2, 4, 5
-
-# 노드 후보 bits (엄격 임계값 bits 기준)
-CANDIDATES = ((1, 1, 0), (0, 1, 1), (1, 1, 1), (1, 0, 1), (0, 0, 0))
-SLOW_ON = ((1, 1, 1), (1, 0, 1))
-
-# 복귀(returning) 시 제외할 방향: 진입 턴의 반대가 "왔던 길"
-OPPOSITE = {"L": "R", "R": "L", "S": "S"}
-
-SAVE_PATH = os.path.join(_ROOT, "config", "run_maze.json")
-STAGE_NAME = "run_maze"
-
-# do 트리거: 자율주행 중에도 언제든 큐잉되며, 제어 루프가 한 틱을 써서 처리한다
-# (bench/stage4d 패턴과 동일 — 비차단). 출발 대기/paused 중 임계값 캘리브레이션용.
 ACTIONS = [
     {"name": "read_color", "label": "Read Center Color"},
     {"name": "read_reflect", "label": "Read L/R Reflect"},
@@ -210,208 +198,32 @@ ACTIONS = [
 
 
 # =====================================================================
-# 판단층 (순수 — PC 테스트 가능). 입력은 전부 인자로 받는다(전역 참조 없음).
+# 판단층 (순수 — PC 테스트 가능)
 # =====================================================================
 
-def steer_level(reflect, th_shallow, th_deep):
-    """걸침 깊이 단계: 0=흰바닥, 1=얕은 걸침(반 정도), 2=깊은 걸침(2/3 이상)."""
-    if reflect < th_deep:
-        return 2
-    if reflect < th_shallow:
-        return 1
-    return 0
+def lost_candidate_blocked(nbits, last_turn, guard_turn):
+    """000 가드: (0,0,0) 이고 직전 조향이 컸으면(보정 중 순간 이탈) 후보 제외.
 
-
-def line_error(l_lv, center_black, r_lv):
-    """계단식 위치 오차. +면 선이 왼쪽 → 왼쪽 보정 (left=base-turn 규약).
-
-    중앙이 라인 위: 얕은 걸침 ±0.5, 깊은 걸침 ±1.0 (걸친 만큼 틀기)
-    중앙이 놓침:   해당 방향 ±2.0 (복구 우선)
-    양쪽이 같은 단계면 0 (직진).
+    000 이외의 후보(진짜 커브/분기 bits)는 절대 막지 않는다.
     """
-    if l_lv == r_lv:
-        return 0.0
-    if center_black:
-        if l_lv > r_lv:
-            return 0.5 if l_lv == 1 else 1.0
-        return -0.5 if r_lv == 1 else -1.0
-    if l_lv > r_lv:
-        return 2.0
-    return -2.0
-
-
-def bits_node(reflect_l, center_color, reflect_r, left_th_node, right_th_node):
-    """노드 판정용 bits (엄격한 임계값 — 완전 검정에서만 1)."""
-    return (1 if reflect_l < left_th_node else 0,
-            1 if center_color == COL_BLACK else 0,
-            1 if reflect_r < right_th_node else 0)
-
-
-def choose_branch(has_left, has_right, has_straight, exclude):
-    """분기 선택: 우 > 좌 > 직진, exclude 방향은 후보에서 제외.
-
-    반환 "R"/"L"/"S", 고를 게 없으면 "U"(유턴).
-    """
-    for opt, ok in (("R", has_right), ("L", has_left), ("S", has_straight)):
-        if ok and opt != exclude:
-            return opt
-    return "U"
-
-
-def line_found(reflect_l, center_color, reflect_r, th_left, th_right):
-    """후진 복구 중 '선 위로 돌아왔다' 판정: 중앙이 검정이거나 좌/우가 조향 임계값 아래."""
-    return (center_color == COL_BLACK or
-            reflect_l < th_left or reflect_r < th_right)
-
-
-def clamp(v, lo, hi):
-    if v < lo:
-        return lo
-    if v > hi:
-        return hi
-    return v
-
-
-def bits_to_str(bits):
-    return "".join(["1" if item else "0" for item in bits])
+    return nbits == (0, 0, 0) and abs(last_turn) > guard_turn
 
 
 # =====================================================================
-# 구동층 헬퍼(hw 경유, ev3dev2 직접 의존 없음 — 가짜 hw 로 PC 테스트 가능)
+# 구동층 헬퍼 — 회전 1회 (v1 _run_turn 의 v2 판: turn_speed 를 라이브 param 으로)
 # =====================================================================
-
-def advance_straight(hw, distance_mm, speed, should_stop=None, should_pause=None):
-    """엔코더 기준 직진 전진(lib/turns.pivot 과 동일한 폴링 패턴).
-
-    distance_mm<=0 이면 전진 없이 0.0. 반환: 실제 전진 거리(mm).
-    """
-    hw.reset_encoders()
-    if distance_mm <= 0:
-        hw.stop()
-        return 0.0
-    if should_stop is not None and should_stop():
-        hw.stop()
-        return 0.0
-
-    target_deg = distance_mm / MM_PER_DEG
-    hw.drive(speed, speed)
-    try:
-        while True:
-            if should_stop is not None and should_stop():
-                break
-            if should_pause is not None and should_pause():
-                hw.drive(0, 0)
-                while should_pause():
-                    if should_stop is not None and should_stop():
-                        break
-                    time.sleep(0.01)
-                if should_stop is not None and should_stop():
-                    break
-                hw.drive(speed, speed)
-            if hw.enc_avg() >= target_deg:
-                break
-            time.sleep(0.005)
-    finally:
-        hw.stop()
-
-    return hw.enc_avg() * MM_PER_DEG
-
-
-def backup_until_line(hw, max_mm, speed, th_left, th_right,
-                      should_stop=None, should_pause=None):
-    """000(선 유실) 시 저속 후진하며 선 재탐색(커브 오인식 이탈 복구).
-
-    폴링마다 중앙 색/좌우 반사광을 읽어 line_found 면 즉시 정지. max_mm 까지
-    후진해도 못 찾으면 found=False (호출부가 막다른 길로 처리). 폴링 패턴은
-    advance_straight 와 동일(stop/pause 즉시 반응). 반환: (found, dist_mm).
-    """
-    hw.reset_encoders()
-    if max_mm <= 0:
-        hw.stop()
-        return False, 0.0
-    if should_stop is not None and should_stop():
-        hw.stop()
-        return False, 0.0
-
-    target_deg = max_mm / MM_PER_DEG
-    found = False
-    hw.drive(-speed, -speed)
-    try:
-        while True:
-            if should_stop is not None and should_stop():
-                break
-            if should_pause is not None and should_pause():
-                hw.drive(0, 0)
-                while should_pause():
-                    if should_stop is not None and should_stop():
-                        break
-                    time.sleep(0.01)
-                if should_stop is not None and should_stop():
-                    break
-                hw.drive(-speed, -speed)
-            c = hw.read_center_color_value()
-            rl = hw.read_left_reflect()
-            rr = hw.read_right_reflect()
-            if line_found(rl, c, rr, th_left, th_right):
-                found = True
-                break
-            if hw.enc_avg() >= target_deg:
-                break
-            time.sleep(0.005)
-    finally:
-        hw.stop()
-
-    return found, hw.enc_avg() * MM_PER_DEG
-
-
-def _tick_stop(base_should_stop, on_tick):
-    """should_stop 콜백에 telemetry 부수효과를 얹는다(pivot/advance_straight 는 수정하지
-    않고 호출부에서만 래핑 — stage3v2 와 동일 패턴)."""
-    def _fn():
-        on_tick()
-        return base_should_stop()
-    return _fn
-
-
-_TELEMETRY_DEFAULTS = {
-    "mode": "idle",
-    "paused": False,
-    "reflect_l": 0,
-    "reflect_r": 0,
-    "color": None,
-    "bits": "000",
-    "error": 0.0,
-    "turn": 0.0,
-    "left_speed": 0,
-    "right_speed": 0,
-    "visits": 0,
-    "arrived": False,
-    "last_turn": None,
-    "returning": False,
-    "grabbed": False,
-}
-
-
-def _publish(tele, params, started, **overrides):
-    frame = dict(_TELEMETRY_DEFAULTS)
-    frame["t_ms"] = int((time.monotonic() - started) * 1000)
-    frame["param_rev"] = params.rev()
-    frame["running"] = True
-    frame.update(overrides)
-    tele.publish(frame)
-
 
 def _run_turn(hw, cmd, params, log, tele, should_stop, should_pause, started):
     """decide_turn(Stage 2 판단층) + pivot(Stage 2 구동층)으로 회전 1회 실행+기록.
 
-    cmd: 'turn_left' | 'turn_right' | 'uturn'. TURN_LEFT/TURN_RIGHT/UTURN reason 은
-    DECISIONS.md 카탈로그 그대로 재사용(신규 추가 없음). 분기/커브의 "왜"는 호출부가
-    이 함수 호출 전에 NODE_CHOICE/NODE_CURVE/DEAD_END 로 따로 남긴다.
+    v1 run_maze._run_turn 과 동일하되 한 가지만 다르다: 회전 속도를 config 상수
+    TURN_SPEED 로 고정하지 않고 **라이브 param `turn_speed`** 를 쓴다(팀 대시보드
+    패리티, 2026-07-06). v1 은 확정 코드라 수정하지 않고 여기 별도 판을 둔다.
     """
     snap = params.snapshot()
     snap["BASE_PIVOT_DEG_90"] = BASE_PIVOT_DEG_90
     snap["BASE_PIVOT_DEG_180"] = BASE_PIVOT_DEG_180
-    snap["turn_speed"] = TURN_SPEED
+    turn_speed = snap["turn_speed"]
     param_rev = params.rev()
 
     action, reason_code, detail = decide_turn(cmd, snap, {})
@@ -423,7 +235,7 @@ def _run_turn(hw, cmd, params, log, tele, should_stop, should_pause, started):
                  enc_l=el, enc_r=er, enc_avg=(abs(el) + abs(er)) / 2.0)
 
     stopper = _tick_stop(should_stop, on_tick)
-    actual = pivot(hw, action, target, TURN_SPEED, should_stop=stopper, should_pause=should_pause)
+    actual = pivot(hw, action, target, turn_speed, should_stop=stopper, should_pause=should_pause)
 
     if POST_TURN_SETTLE_MS > 0:
         time.sleep(POST_TURN_SETTLE_MS / 1000.0)
@@ -454,6 +266,7 @@ def run():
     tele = Telemetry()
     log = DecisionLog(telemetry=tele)
     hw = Ev3Hardware()
+    pd = PdController()
 
     stop_flag = {"on": False, "source": None}
     pause_state = {"paused": False, "source": None}
@@ -464,6 +277,8 @@ def run():
              "last_turn": None, "returning": False}
     # 선 유실 복구 이력: 직전 복구 시각. LOST_RETRY_WINDOW_MS 안의 재유실은 막다른 길로 본다.
     lost = {"last_recover_t": -1e9}
+    # 직전 루프의 PD turn — 000 가드 판정용. 주행이 끊기면 0 으로 리셋.
+    steer = {"last_turn": 0.0}
 
     def on_stop(source):
         stop_flag["on"] = True
@@ -494,6 +309,11 @@ def run():
 
     started = time.monotonic()
 
+    def reset_steer():
+        """주행이 끊긴 뒤(회전/후진/정지) PD 이력과 000 가드 기준을 초기화한다."""
+        pd.reset()
+        steer["last_turn"] = 0.0
+
     def take_pending():
         with plock:
             action = pending["action"]
@@ -518,7 +338,7 @@ def run():
         hw.beep_ok()
         hw.beep_ok()
         state["arrived"] = True
-        log.log("NODE_IS_GOAL", "COLOR_RED", color=COL_RED)
+        log.log("NODE_IS_GOAL", "COLOR_GREEN", color=COL_GOAL)
 
     def handle_node(bits):
         hw.stop()
@@ -567,7 +387,7 @@ def run():
             return
 
         c = hw.read_center_color_value()
-        if c == COL_RED:                 # 전진했더니 도착 영역
+        if c == COL_GOAL:                # 전진했더니 도착 영역
             arrive()
             return
 
@@ -616,7 +436,8 @@ def run():
             state["last_turn"] = choice
             state["returning"] = False
 
-    print("run_maze ready. waiting YELLOW on center sensor... (Ctrl-C or robotctl stop to quit)")
+    print("run_maze_v2 ready. waiting YELLOW on center sensor... "
+          "(Ctrl-C or robotctl stop to quit)")
 
     # ---------- 출발 대기 ----------
     snap0 = params.snapshot()
@@ -626,7 +447,7 @@ def run():
             hw.stop()
             log.log("EMERGENCY_STOP", "NETWORK", source=stop_flag["source"])
             server.stop()
-            print("run_maze stopped before start.")
+            print("run_maze_v2 stopped before start.")
             return
         action = take_pending()
         if action is not None:
@@ -636,15 +457,16 @@ def run():
     hw.beep_ok()
     log.log("NODE_IS_START", "COLOR_YELLOW", color=COL_YELLOW)
     advance_straight(hw, START_EXIT_MM, STRAIGHT_SPEED, should_stop, should_pause)
+    reset_steer()
 
     # ---------- 메인 루프 ----------
     cand = None
     cand_t0 = 0.0
     last_node_t = time.monotonic()
-    last_blue_t = 0.0
+    last_visit_t = 0.0
     last_follow_log = time.monotonic() - REASON_THROTTLE_S
 
-    print("run_maze running. stop via 'robotctl stop' or Ctrl-C.")
+    print("run_maze_v2 running. stop via 'robotctl stop' or Ctrl-C.")
     try:
         while not state["arrived"]:
             if stop_flag["on"]:
@@ -654,6 +476,7 @@ def run():
 
             if pause_state["paused"]:
                 hw.stop()
+                reset_steer()
                 _publish(tele, params, started, mode="paused", paused=True,
                          visits=state["visits"], arrived=state["arrived"],
                          last_turn=state["last_turn"], returning=state["returning"],
@@ -670,22 +493,23 @@ def run():
             snap = params.snapshot()
             now = time.monotonic()
 
-            # (1) 중앙 색상(상시 컬러모드) + 색 이벤트
+            # (1) 중앙 색상(상시 컬러모드) — 노드/마커 판정 전용(조향에는 안 쓴다)
             c_color = hw.read_center_color_value()
 
-            if c_color == COL_RED:
+            if c_color == COL_GOAL:
                 arrive()
                 break
 
-            if (c_color == COL_BLUE and
-                    (now - last_blue_t) * 1000 >= COLOR_DEBOUNCE_MS):
+            if (c_color == COL_VISIT and
+                    (now - last_visit_t) * 1000 >= COLOR_DEBOUNCE_MS):
                 hw.stop()
                 state["visits"] += 1
-                log.log("VISIT_NODE", "BLUE_REVISIT", color=c_color, visits=state["visits"])
+                log.log("VISIT_NODE", "RED_REVISIT", color=c_color, visits=state["visits"])
                 _run_turn(hw, "uturn", params, log, tele, should_stop, should_pause, started)
                 state["returning"] = True
-                last_blue_t = time.monotonic()
+                last_visit_t = time.monotonic()
                 cand = None
+                reset_steer()
                 continue
 
             # (2) 소스통: 초음파 근접 → 파지 (1회)
@@ -696,38 +520,39 @@ def run():
                 log.log("GRAB", "ULTRASONIC_NEAR", grab_dist_cm=snap["grab_dist_cm"],
                         grip_speed=snap["grip_speed"])
                 hw.beep_ok()
+                reset_steer()
 
-            # (3) 좌/우 반사광 1회 판독 → 조향 레벨 / 노드 bits 생성
+            # (3) 좌/우 반사광 1회 판독 → 노드 bits 생성 (조향 임계값 판정은 없다)
             rl = hw.read_left_reflect()
             rr = hw.read_right_reflect()
-            l_lv = steer_level(rl, snap["left_th_steer"], LEFT_TH_DEEP)
-            r_lv = steer_level(rr, snap["right_th_steer"], RIGHT_TH_DEEP)
             nbits = bits_node(rl, c_color, rr, LEFT_TH_NODE, RIGHT_TH_NODE)
 
             # (4) 노드 후보 추적 (엄격 bits, confirm + debounce)
-            if nbits in CANDIDATES:
+            #     000 만 가드: 한창 보정 중(직전 |turn| 큼)의 순간 이탈은 후보 제외.
+            if nbits in CANDIDATES and not lost_candidate_blocked(
+                    nbits, steer["last_turn"], LOST_GUARD_TURN):
                 if cand != nbits:
                     cand = nbits
                     cand_t0 = now
-                elif ((now - cand_t0) * 1000 >= NODE_CONFIRM_MS and
+                elif ((now - cand_t0) * 1000 >= snap["node_confirm_ms"] and
                       (now - last_node_t) * 1000 >= NODE_DEBOUNCE_MS):
                     handle_node(nbits)
                     last_node_t = time.monotonic()
                     cand = None
+                    reset_steer()
                     continue
             else:
                 cand = None
 
-            # (5) 계단식 조향 (걸친 만큼 틀기)
-            err = line_error(l_lv, c_color == COL_BLACK, r_lv)
-            turn = clamp(snap["follow_gain"] * err, -TURN_LIMIT, TURN_LIMIT)
-            base = SLOW_SPEED if nbits in SLOW_ON else snap["base_speed"]
-            left_speed = clamp(base - turn, -100, 100)
-            right_speed = clamp(base + turn, -100, 100)
+            # (5) PD 조향 — 좌/우 반사광 raw 차이만(중앙 raw 자리는 0, pd 는 안 쓴다).
+            #     SLOW_ON bits 면 감속 주행(v1 동일 동작).
+            snap_eff = snap if nbits not in SLOW_ON else dict(snap, base_speed=SLOW_SPEED)
+            left_speed, right_speed, err, _deriv, turn = pd.step((rl, 0, rr), snap_eff)
             hw.drive(left_speed, right_speed)
+            steer["last_turn"] = turn
 
             if (now - last_follow_log) >= REASON_THROTTLE_S:
-                log.log("LINE_FOLLOW", "STEP", reflect_l=rl, reflect_r=rr,
+                log.log("LINE_FOLLOW", "PID", reflect_l=rl, reflect_r=rr,
                         bits=bits_to_str(nbits), error=err, turn=turn)
                 last_follow_log = now
 

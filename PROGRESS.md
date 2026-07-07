@@ -30,6 +30,13 @@
 - 최신 `origin/HoJeongDu`에는 `run_maze_v5.py`가 없었고, `origin/master`에서 `stages/run_maze_v5.py`와 `tests/test_run_maze_v5_logic.py`를 찾아 현재 `inchul` 브랜치로 가져왔다.
 - `run_maze_v5.py`는 v4 탐색 로직을 재사용하고 대시보드/robotctl `reset` 액션을 추가한 버전이다. PC 환경에 `python`/`python3`/`py` 실행기가 없어 `py_compile`은 수행하지 못했다.
 
+## 2026-07-07 run_maze_v12 안정화 실험판 작성 (Agent: codex)
+
+- `stages/run_maze_v5.py`의 reset 세션 구조를 기준으로 `stages/run_maze_v12.py`를 새로 만들었다. v5/v11 파일은 수정하지 않았다.
+- 요청값을 v12 기본값으로 반영했다: `base_speed=16`, `kp=0.17`, `turn_speed=6`, `node_confirm_ms=80`, `left_th_steer=66`, `right_th_steer=63`, `node_advance_mm=40`, `goal_advance_mm=20`, `turn_90_factor=0.66`, `turn_180_factor=0.71`, `grab_dist_cm=6`, `grip_speed=50`, `left_th_node=18`, `right_th_node=14`.
+- D항 `0.05`가 들어간 v12 내부 PD 컨트롤러, 브랜치 후보 지점의 PD-off 저속 직진/정지 재판정, 빨강/노랑/초록 마커 즉시 정지 후 U턴+부저 2회를 반영했다.
+- 현재 PC 환경에 `python`/`python3`/`py` 실행기가 없어 `py_compile`은 수행하지 못했다. 브릭 또는 Python 설치 환경에서 문법 점검과 실기 검증이 필요하다.
+
 ## 현재 단계
 
 **Stage 4 — 🟢 실기 Done(2026-07-03, 사용자 확인). `stage4_clolor_reflected.py`가 보라/빨강

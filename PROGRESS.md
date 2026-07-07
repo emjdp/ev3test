@@ -15,6 +15,15 @@
 - `run_maze_v4.py`는 현재 브랜치에 있는 `stages/run_maze.py`, `stages/run_maze_v2.py`, `stages/stage3v2_linetrace_branch.py`를 재사용한다.
 - 현재 PC 환경에 `python`/`python3`/`py` 실행기가 없어 `py_compile`은 수행하지 못했다. 브릭 또는 Python 설치 환경에서 문법 점검과 실기 검증이 필요하다.
 
+## 2026-07-07 run_maze_v11 안정화 실험판 작성 (Agent: codex)
+
+- `stages/run_maze_v4.py`를 기반으로 `stages/run_maze_v11.py`를 새로 만들었다. v4 파일은 수정하지 않았다.
+- 요청값을 v11 기본값으로 반영했다: `base_speed=16`, `kp=0.2`, `turn_speed=6`, `node_confirm_ms=90`, `left_th_steer=66`, `right_th_steer=63`, `node_advance_mm=20`, `goal_advance_mm=20`, `turn_90_factor=0.66`, `turn_180_factor=0.71`, `grab_dist_cm=6`, `grip_speed=50`, `left_th_node=18`, `right_th_node=14`.
+- D항 `0.05`를 v11 내부 PD 컨트롤러에 명시하고, 재포착 후 위빙 완화를 위해 derivative EMA/상한을 추가했다.
+- 브랜치 후보가 보이면 PD 라인트레이싱을 끄고 저속 직진 후 정지 상태에서 bits를 재판정하는 `NODE_CONFIRMED/SLOW_STRAIGHT_STOP` 경로를 추가했다.
+- 빨강/노랑/초록 마커는 주행/후보 확정보다 우선해 즉시 정지 후 U턴하고 총 2회 부저가 울리도록 `MARKER_UTURN` 경로를 추가했다.
+- 현재 PC 환경에 `python`/`python3`/`py` 실행기가 없어 `py_compile`은 수행하지 못했다. 브릭 또는 Python 설치 환경에서 문법 점검과 실기 검증이 필요하다.
+
 ## 현재 단계
 
 **Stage 4 — 🟢 실기 Done(2026-07-03, 사용자 확인). `stage4_clolor_reflected.py`가 보라/빨강

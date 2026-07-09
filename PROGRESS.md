@@ -340,6 +340,17 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-10 — final_run10: 회전 후 엣지 획득 추가 (Agent: claude, ev3final 저장소)
+- **문제(사용자)**: 동체가 라인과 평행하게 곧게 가야 하는데, run9 중앙 엣지 팔로잉은
+  회전 직후 중앙 센서가 흰 바닥/라인 중앙(포화 검정)에 앉아 PID 가 큰 스윙으로 출발.
+- **반영(`ev3final/stages/final_run10.py`)**: 회전(L/R/U)·노드 직진 통과·유실 복구·출발
+  직후에 `acquire_edge` — 흰색이면 realign 으로 검정 찾기 → 검정에서
+  `edge_exit_dir(steer_sign)` 쪽 소각 피벗으로 엣지 밴드(edge_target±8)에서 정지 후
+  PID 재개. 좌/우 반사광은 분기 판단 전담(run9 승계). 라이브 파라미터 추가 없음.
+- **PC 검증**: py_compile + `tests/test_final_run10_maze.py` 19개 통과(HTML 미로 복귀
+  동치 + edge_exit_dir 부호 규약). **엣지 획득 실기 검증 필요** —
+  `ev3final/final_run10_notes.md` 의 확인 절차 참조.
+
 ### 2026-07-06 — Stage 5 하위 단계 분할 + 5-1 고정 지시 회전 구현 (Agent: claude)
 - **요청(사용자)**: 통합 1방 stage5(토큰 소비 구조)는 너무 복잡해 실기 디버깅이 안 되고
   제대로 동작하지 않음. 분기 구분/우회전/111 판단처럼 한 번에 하나씩 업그레이드하는

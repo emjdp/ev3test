@@ -340,6 +340,25 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-10 — final_run8: PD 라이브 튜닝 + confirm 거리 결정형 (Agent: claude, ev3final 저장소)
+- **PD 라이브 튜닝(ev3final 커밋 5a1ba3f)**: 조향 P 의 soft-deadband(및 `deadband`
+  파라미터)를 완전 제거 — error 를 그대로 P 에 넣는다. 고정 상수 `PID_KD`(0.05)를
+  라이브 파라미터 `kd` 로 승격(대시보드 describe 로 자동 노출, 주행 중 kp/kd 즉시 반영).
+  적분(I)은 코드·windup 가드(INTEG_*)를 그대로 두되 기본값만 `ki` 0.06→0.0
+  (ki=0 이면 적분 완전 off — 필요할 때만 켠다). `PidSteer.step()` 5-튜플 시그니처·
+  텔레메트리·호출부 불변이라 순수 로직 테스트 그대로 통과.
+- **confirm 거리 결정형(ev3final 커밋 99ba16d)**: confirm creep 종료를
+  시간(`node_confirm_ms` 40ms) → 거리(`node_confirm_mm` 기본 8.0mm)로 교체. 진입
+  감속 거리가 타이머 창에 섞여 같은 40ms 에서 creep_mm 이 1.5~7.8mm 로 산포(runs/
+  155회)하던 것을 '감지점+정확히 X mm'로 결정화. 스톨/걸림 대비 `CONFIRM_TIMEOUT_S`
+  (1.5s) 상한 병행 — 상한 도달 시에도 정지 후 재판정 진행하되 로그 `timeout=True`.
+  로그 필드 `confirm_ms=`→`confirm_mm=`. marker/passed-over/pause·creep_mm 반환·
+  handle_node 보정 불변.
+- **PC 검증**: py_compile + `tests/test_run_maze_v4_logic.py` 11개 통과. **실기 검증
+  필요** — (1) 대시보드에 `kd` 노출/`deadband` 제거 확인, 주행 중 kp·kd 변경 즉시 조향
+  반영. (2) confirm 로그 creep_mm 이 설정값 ±1mm 로 일정한지(기존 1.5~7.8mm 산포 대비).
+- 다른 스테이지(run9/10/11·gg*)는 미변경 — 각 파일 독립 유지.
+
 ### 2026-07-10 — final_run8: 교차로 접근 가드(급조향 진입 수정) (Agent: claude, ev3final 저장소)
 - **문제(사용자, 실기)**: 직선 라인트레이싱은 정상인데 교차로 진입 순간 좌/우 센서가
   가로선을 인식하면서 급격한 자세제어 → 차체가 대각선으로 기울어 진입하거나 위빙.

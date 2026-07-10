@@ -345,6 +345,25 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-11 — aplus: [8] 복귀 도착 폴백 + Space 대기 전환 (Agent: claude, ev3final 저장소)
+- **목적(사용자 요청)**: 패드에 (1) 노랑 마커를 못 읽고 지나쳤을 때의 복귀 도착
+  폴백, (2) 일시정지 토글이 아니라 분기/커브처럼 "정지 후 명령 대기"로 들어가는
+  키를 추가한다.
+- **ev3final 커밋 9e52e43** (`stages/aplus.py`, `tools/aplus_pad.py`,
+  `tests/test_aplus_logic.py`):
+  - **[8] home_drop**: 노랑 확정 절차를 그 자리에서 수동 시행 — 감속 정지 →
+    BACK 시간 표시+스톱워치 정지 → 그립 해제 → 완주(done). goal_drop([7])과
+    같은 제어 루프 FIFO 경로. 대기 중 눌러도 안전하게 종료되도록
+    drive_loop/await_command/decide_and_move 에 done 체크 추가.
+  - **[Space]=hold(대기 전환)**: 기존 pause 토글 대신 `do hold` 전송 — 로봇이
+    감속 정지 후 결정 대기(await_cmd, 패드 노란 배경)로 진입, 이동 키(w/a/s/d,
+    q/e)로 재개. manifest 키는 [g](패드 Space 와 동일 액션). 이미 대기 중이면
+    hold 플래그를 흡수해 재대기 루프 방지.
+- **PC 검증**: `py_compile` + `tests/test_aplus_logic.py` 60개(신규 5개 포함)
+  통과, `aplus_pad --once` 렌더 스모크 확인. **실기 검증 필요** — (1) 주행 중
+  Space → 정지·노란 배경·이동 키 재개, (2) 노랑 안 밟은 상태에서 [8] → BACK
+  시간/그립 해제/finished 화면, (3) 대기 중 [8] 완주 전환.
+
 ### 2026-07-10 — manual_run1: 교차로 수동 조향(대시보드 원격 제어) 신설 (Agent: claude, ev3final 저장소)
 - **목적(사용자 요청)**: 회전 판단을 로봇이 아니라 사람이 대시보드에서 내린다.
   라인트레이싱·교차로 판별(감속→confirm)은 **final_run8 검증본** 그대로 가져오고,

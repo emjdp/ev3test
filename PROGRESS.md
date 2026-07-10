@@ -345,6 +345,31 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-11 — aplus: hold 모션 중간 인터럽트 + 유턴 s→u(신설 s=후진) + 숫자 2 고정 (Agent: claude, ev3final 저장소)
+- **목적(사용자 요청)**: (1) Space(대기 전환)가 90도 회전 같은 행동 실행 중간에는
+  안 먹던 것을 즉시 끊고 들어가게, (2) 180도 유턴을 [s]→[u] 로 옮기고 [s] 는
+  약간 후진으로, (3) 발표 난수를 갈 때/올 때 둘 다 2 로 임시 고정.
+- **ev3final 커밋 96f21cd** (`stages/aplus.py`, `tools/aplus_pad.py`,
+  `tests/test_aplus_logic.py`):
+  - **hold 즉시 인터럽트**: `motion_break()`(= stop/reset/hold) 신설, 직진/회전/
+    대각선 프리미티브 루프의 중단 조건을 교체 — 회전 중 Space 도 그 자리에서
+    모터 정지 후 결정 대기로 진입(회전 후 라인 재획득 스캔도 생략). 플래그는
+    상위 루프(drive_loop/decide_and_move/await_command)가 대기 진입 때 흡수해
+    재대기 루프·잔재 오작동 방지, 출발 대기 중 눌린 hold 는 GO 시점에 무시.
+    deliver/manual_goal 도 hold 로 잔여 절차(그립/유턴) 중단.
+  - **키 재배치**: uturn manifest key "u"(패드 [u]), [s]=back_nudge 신설 —
+    diag_step_mm(기본 40mm)만큼 직선 후진(종점 감속 포함), q/e 처럼 stay
+    (실행 후 그 자리 계속 대기, 연타로 미세 조정 후 [w] 재개). 큐 토큰 "B",
+    STAY_MOVES=(DL,DR,B).
+  - **숫자 고정**: `FIXED_NUMBER=2` — START(갈 때)/GREEN·MANUAL_GOAL(올 때)
+    모두 2 표시+num_2.wav 재생(`import random` 제거). 랜덤 복원 시 이 상수만
+    되돌리면 된다.
+- **PC 검증**: `py_compile` + `tests/test_aplus_logic.py` 66개(신규 6개: hold
+  인터럽트 3, back 토큰/후진 2, 숫자 고정 1) 통과, `aplus_pad --once` 렌더
+  스모크 확인. **실기 검증 필요** — (1) 90/180도 회전 중 Space → 즉시 정지·
+  노란 배경, (2) [s] 후진 거리(diag_step_mm 공유가 적절한지), (3) LCD/음성이
+  출발·초록 모두 2 인지.
+
 ### 2026-07-11 — aplus: [8] 복귀 도착 폴백 + Space 대기 전환 (Agent: claude, ev3final 저장소)
 - **목적(사용자 요청)**: 패드에 (1) 노랑 마커를 못 읽고 지나쳤을 때의 복귀 도착
   폴백, (2) 일시정지 토글이 아니라 분기/커브처럼 "정지 후 명령 대기"로 들어가는

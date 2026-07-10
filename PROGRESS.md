@@ -345,6 +345,33 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## 작업 로그 (최신이 위로)
 
+### 2026-07-10 — manual_run1: 교차로 수동 조향(대시보드 원격 제어) 신설 (Agent: claude, ev3final 저장소)
+- **목적(사용자 요청)**: 회전 판단을 로봇이 아니라 사람이 대시보드에서 내린다.
+  라인트레이싱·교차로 판별(감속→confirm)은 **final_run8 검증본** 그대로 가져오고,
+  교차로에서 정지해 대시보드 방향 버튼(좌/직/우/유턴)을 기다렸다 회전한다.
+- **신규 `ev3final/stages/manual_run1.py`** (커밋 19aecf7, 3af7518): final_run8 에서
+  PID(캘리브레이션 정규화, kp/kd/ki 라이브), 교차로 접근 가드(§F), 000 유실
+  후진·재정렬 복구, 거리 결정형 confirm, 스무스 턴을 그대로 복사. Explorer
+  지도/복귀 계획/마커 미션/그리퍼/초음파는 전부 제거(색 스티커는 on_line
+  라인으로만 취급).
+  - **방향 명령**: `do` 액션 `left/straight/right/uturn` → `CommandBox` 단일
+    슬롯(최신 명령이 덮음, `clear`([x])로 비움). 교차로(출구≥2) 도착 시 슬롯에
+    있으면 즉시 소비(무정차), 없으면 정지 대기. 커브(출구 1)는 자동 회전,
+    막다른길(유실 확정 체인)도 자동 유턴 대신 명령 대기. 명령은 무조건 따르되
+    bits 상 없는 출구면 `EXIT_MISMATCH_OBEYED` 경고 로그. 시작은 `go` 액션.
+  - **대시보드 규약은 gg8 과 통일**(같은 날 codex 가 push 한 gg8 = gg5 주행층
+    기반 동일 컨셉): manifest key 필드 핫키 [j]left [k]straight [l]right
+    [u]uturn [x]clear [t]go, 대기 프레임 mode=`await_cmd` + `pending_cmd`/
+    `await_kind`/`has_*` → dashboard AWAITING COMMAND 배너 공용. 도구 수정 없음.
+  - **gg8 과의 차이(후보 2개 유지)**: gg8 은 커브·마커도 전부 정지해 사람이
+    결정(+음성/그리퍼/nudge), manual_run1 은 final_run8 라인트레이싱으로
+    교차로만 수동·커브는 자동 통과 — 실기에서 조작 부담 대비 안정성 비교 후 선택.
+- **PC 검증**: `py_compile` + 신규 `tests/test_manual_run1_logic.py` 14개
+  (CommandBox/on_do 큐잉/핫키 배치/node_bits·on_line·normalize) + 전체
+  `unittest discover` 285개(gg8 포함) 통과. **실기 검증 필요** — (1) 교차로 정지
+  후 버튼 회전, (2) 접근 중 미리 누른 명령의 무정차 소비, (3) 잘못 누른 버튼
+  덮어쓰기/[x] 클리어, (4) 막다른길 명령 대기, (5) 대시보드 배너 표시.
+
 ### 2026-07-10 — gg4/gg6: NODE_GUARD deep-drop 승격 (Agent: codex, ev3final 저장소)
 - **문제(실기 로그 `runs/2026-07-10T18-38-47`, stage=gg4)**: 교차로 접근 가드가 먼저
   켜진 프레임에서 bits 가 `001`/`100`이면 기존 `NODE_CANDIDATES` 가 아니라 confirm 이

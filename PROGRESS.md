@@ -105,6 +105,11 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 
 ## TODO (다음 할 일)
 
+- [ ] **gg4/gg6 NODE_GUARD 승격 실기 검증** — 최근 실기 주행 파일인
+      `stages/gg4.py` 를 먼저 브릭에서 실행해 `NODE_GUARD STRAIGHT_HOLD` 직후
+      bits `001`/`100` + 측면 반사광 노드 임계 미만 상황에서
+      `NODE_CANDIDATE escalated=True` 가 즉시 뜨고, 정지 재판정 후 회전까지
+      이어지는지 확인한다. 값/상수 재튜닝 없이 로그만 본다. gg6도 동일 확인.
 - [ ] **frun_v1 편도 좌수법 실기 검증** — `stages/frun_v1.py` 를 브릭에서 실행해
       노랑 출발→분기 좌수법(L>S>R)→111 십자 D형 직진/T자 후진복귀→초록 도착 즉시 종료를
       확인한다. 대시보드 `trail:` 줄에 `L(110) S(111) U(red)` 식 누적 기록이 뜨는지,
@@ -339,6 +344,26 @@ DRAFT/REVIEWED 2단계(실기 Done 은 명세가 아니라 이 PROGRESS 의 🟢
 | `LEFT/RIGHT_MOTOR_TRIM` | hardware 상수 | 1.0/1.0 | 보정②에서 쏠림 실측 |
 
 ## 작업 로그 (최신이 위로)
+
+### 2026-07-10 — gg4/gg6: NODE_GUARD deep-drop 승격 (Agent: codex, ev3final 저장소)
+- **문제(실기 로그 `runs/2026-07-10T18-38-47`, stage=gg4)**: 교차로 접근 가드가 먼저
+  켜진 프레임에서 bits 가 `001`/`100`이면 기존 `NODE_CANDIDATES` 가 아니라 confirm 이
+  시작되지 않았다. 실제로 t=88810 은 `bits=001`, `reflect_r=10(<right_th_node 30)`,
+  t=134498 은 `bits=100`, `reflect_l=9(<left_th_node 35)`라 측면 센서가 가로선 위였지만
+  가드 직진 후 교차로를 타넘거나 PID 복귀 프레임에서 급조향했다.
+- **반영(`ev3final/stages/gg4.py`, `stages/gg6.py`)**: `should_escalate(bits, rl, rr,
+  guard_active, snap)` 순수 함수를 추가해 `guard_since` 가 켜진 상태에서 측면 반사광이
+  노드 임계 미만으로 깊게 떨어지면 비후보 bits 도 confirm 으로 승격한다. LOST(`000`)
+  분기는 기존 `if bits == LOST_BITS` 경로에 그대로 남겼고, `passed-over` 규칙과
+  `NODE_CANDIDATES` 목록/상수/임계값은 변경하지 않았다.
+- **confirm 경로**: `confirm_node(..., escalated=False)` 플래그를 추가했다. 승격 진입에서만
+  creep 중 `bits not in NODE_CANDIDATES` 즉시 취소를 건너뛰고, 최종 정지 재판정은 기존처럼
+  `NODE_CANDIDATES` 여야 확정한다. `NODE_CANDIDATE`/`NODE_CONFIRMED`/취소 로그와
+  `node_confirm` telemetry 에 `escalated` 필드를 남긴다.
+- **PC 검증**: `py_compile`(gg4/gg6 + lib, 전체 stages/lib), `python -m unittest
+  tests.test_gg4_logic tests.test_gg6_logic -q` 34개, `python -m unittest discover -s tests -q`
+  230개 통과. `pytest` 는 현재 PC Python에 설치되어 있지 않아 동일 테스트를 `unittest` 로
+  실행했다. **실기 검증 필요** — 위 TODO 항목.
 
 ### 2026-07-10 — final_run8: PD 라이브 튜닝 + confirm 거리 결정형 (Agent: claude, ev3final 저장소)
 - **PD 라이브 튜닝(ev3final 커밋 5a1ba3f)**: 조향 P 의 soft-deadband(및 `deadband`
